@@ -2,9 +2,10 @@
 from PyQt5 import QtGui
 import sys
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtWidgets import QTableWidgetItem
+from PyQt5.QtWidgets import QTableWidgetItem, QMessageBox
 from ui import Ui_MainWindow
 import MySQLdb as Mdb
+import inspect
 from string import digits
 
 
@@ -15,7 +16,7 @@ class Program(QtWidgets.QMainWindow):
         self.window.setupUi(self)
 
         headers = {
-            "Сотрудники": ["Код сотруддника", "Имя", "Фамилия", "Отчество", "Опыт работы", "Должность", "Отдел"],
+            "Сотрудники": ["Код сотрудника", "Имя", "Фамилия", "Отчество", "Опыт работы", "Должность", "Отдел"],
             "Должности": ["Название долнжости", "Описание", "Требуемый опыт"],
             "Отделы": ["Номер отдела", "Название отдела"],
             "Имущество": ["Код предмета", "Поставщик", "Ответственной лицо", "Расположение", "Тип", "Состояние",
@@ -36,32 +37,21 @@ class Program(QtWidgets.QMainWindow):
             self.window.tablesTabs.addTab(temp, tab)
 
         self.table.display_table("Сотрудники")
-
-        # self.table.table.horizontalHeader().setDefaultSectionSize(200)
-        self.table.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-
-        self.window.filterTabs.currentChanged.connect(self.filter_tabs_changed)
-        self.window.filterTabs.setCurrentIndex(0)
-        self.window.filterCombobox.currentIndexChanged.connect(self.filter_combobox_changed)
         self.input_tabs_enable_tab(0)
+        self.filter_table_enable(0)
+
+        self.window.tableWidget.resizeColumnsToContents()
+
+        self.reset()
+        #
+        self.window.tableWidget.clicked.connect(self.save_cell)
+        self.window.tableWidget.itemChanged.connect(self.update_table)
+        #
+        self.window.filterCombobox.currentIndexChanged.connect(self.filter_combobox_changed)
         #
         self.window.additionCombobox.currentIndexChanged.connect(self.addition_combobox_changed)
         self.window.additionAddButton.clicked.connect(self.addition_add_button_click)
-
         self.window.tablesTabs.currentChanged.connect(self.table_tabs_changed)
-
-        table = self.table.get_table("Сотрудники")
-        maximum = max([record[4] for record in table])
-        self.window.filterStaffExpToSpinB.setValue(maximum)
-
-        table = self.table.get_table("Имущество")
-        maximum = max([record[6] for record in table])
-        self.window.filterPropToSpinBox.setValue(maximum)
-
-        self.configure_combo_boxes()
-
-        self.window.filterStaffDecRadioB_2.setChecked(True)
-        self.window.filterPropDecRadioB_2.setChecked(True)
         #
         self.window.filterStaffDecRadioB_2.toggled.connect(self.filter_staff)
         self.window.filterStaffIncRadioB.toggled.connect(self.filter_staff)
@@ -92,17 +82,126 @@ class Program(QtWidgets.QMainWindow):
 
         self.window.removalDeleteButton.clicked.connect(self.removal_delete_button_clicked)
 
-    def removal_delete_button_clicked(self):
-        index = self.window.tablesTabs.currentIndex()
-        table_name = self.table.get_table_name(index)
-        table = self.table.get_table(table_name, with_id=True)
-        for item in self.window.tableWidget.selectedItems():
+    def save_cell(self):
+        global previous_cell
+        previous_cell = self.window.tableWidget.currentItem()
+
+    def update_table(self):
+        global previous_cell
+        current_frame = inspect.currentframe()
+        caller_frame = current_frame.f_back
+        code_obj = caller_frame.f_code
+        code_obj_name = code_obj.co_name
+        if code_obj_name == "<module>":
+            k = 0
+            if not(self.window.tablesTabs.currentIndex() == 0 or
+                   self.window.tablesTabs.currentIndex() == 3 or self.window.tablesTabs.currentIndex() == 4):
+                k = 1
+            table_name = self.table.get_table_name(self.window.tablesTabs.currentIndex())
+            table = self.table.get_table(table_name, with_id=True)
             for i, record in enumerate(table):
-                if i == item.row():
-                    self.table.delete_record_from_table(record[0], table_name)
-        self.table.display_table(table_name)
+                if i == previous_cell.row():
+                    identifier = record[0]
+                    row_index = previous_cell.column() + k
+                    new_value = self.window.tableWidget.item(previous_cell.row(), previous_cell.column()).text()
+                    record = list(record)
+                    record[row_index] = new_value
+                    print(table_name, identifier, row_index, new_value)
+
+                # self.table.update_record_in_table(table_name, record[0], previous_cell.column(), self.window.tableWidget.item(previous_cell.row(), previous_cell.column()))
+
+    def reset(self):
+        self.configure_combo_boxes()
+        self.window.staffPatEdit.setText("")
+        self.window.staffFNameEdit.setText("")
+        self.window.staffSNameEdit.setText("")
+        self.window.staffExpEdit.setText("")
+        self.window.postsTitleEdit.setText("")
+        self.window.postsDicsEdit.setText("")
+        self.window.postsExpEdit.setText("")
+        self.window.departmentsTitleEdit.setText("")
+        self.window.departmentsIdEdit.setText("")
+        self.window.propertyCostEdit.setText("")
+        self.window.propertyIdEdit.setText("")
+        self.window.propertyEmplIdEdit.setText("")
+        self.window.providersPhoneEdit.setText("")
+        self.window.providersTitleEdit.setText("")
+        self.window.typesTypeEdit.setText("")
+        self.window.typesDiscEdit.setText("")
+        #
+        #
+        self.window.filterStaffDepartCB.setCurrentIndex(0)
+        self.window.filterStaffPostsCB.setCurrentIndex(0)
+        self.window.filterStaffSortNSearchCB.setCurrentIndex(0)
+        table = self.table.get_table("Сотрудники")
+        maximum = max([record[4] for record in table])
+        self.window.filterPropFromSpinBox.setValue(0)
+        self.window.filterStaffExpToSpinB.setValue(maximum)
+        self.window.filterStaffDecRadioB_2.setChecked(True)
+        self.window.filterStaffSeachEdit.setText("")
+        #
+        self.window.filterPropLocationCB.setCurrentIndex(0)
+        self.window.filterPropProvidersCB.setCurrentIndex(0)
+        self.window.filterPropTypeCB.setCurrentIndex(0)
+        self.window.filterPropStateCB.setCurrentIndex(0)
+        self.window.filterPropDecRadioB_2.setChecked(True)
+        self.window.filterPropFromSpinBox.setValue(0)
+        table = self.table.get_table("Имущество")
+        maximum = max([record[6] for record in table])
+        self.window.filterPropToSpinBox.setValue(maximum)
+        self.window.filterPropSearchEdit.setText("")
+        #
+        self.window.filterProvidersSearchEdit.setText("")
+
+    def filter_combobox_changed(self):
+        self.filter_table_enable(self.window.filterCombobox.currentIndex())
+        index = self.window.filterCombobox.currentIndex()
+        if index == 0:
+            self.table.display_table("Сотрудники")
+            self.window.tablesTabs.setCurrentIndex(0)
+        elif index == 1:
+            self.table.display_table("Имущество")
+            self.window.tablesTabs.setCurrentIndex(3)
+        elif index == 2:
+            self.table.display_table("Поставщики")
+            self.window.tablesTabs.setCurrentIndex(4)
+
+    def filter_table_enable(self, tabindex):
+        for index in range(0, self.window.filterTabs.count()):
+            self.window.filterTabs.setTabEnabled(index, False)
+
+        self.window.filterTabs.setTabEnabled(tabindex, True)
+        self.window.filterTabs.setCurrentIndex(tabindex)
+
+    def removal_delete_button_clicked(self):
+        button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                            "Вы уверены, что хотите удалить данные?", QMessageBox.Yes, QMessageBox.No)
+        if button_reply == QMessageBox.Yes:
+            button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                                "Вы точно уверены?", QMessageBox.Yes,
+                                                QMessageBox.No)
+            if button_reply == QMessageBox.Yes:
+                index = self.window.tablesTabs.currentIndex()
+                table_name = self.table.get_table_name(index)
+                table = self.table.get_table(table_name, with_id=True)
+                for item in self.window.tableWidget.selectedItems():
+                    for i, record in enumerate(table):
+                        if i == item.row():
+                            self.table.delete_record_from_table(record[0], table_name)
+                self.table.display_table(table_name)
+                self.reset()
 
     def filter_delete_button_clicked(self):
+        button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                            "Вы уверены, что хотите удалить данные?", QMessageBox.Yes, QMessageBox.No)
+        if button_reply == QMessageBox.No:
+            return
+        button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                            "Вы точно уверены?", QMessageBox.Yes,
+                                            QMessageBox.No)
+        if button_reply == QMessageBox.No:
+            return
+
         if self.window.filterTabs.currentIndex() == 2:
             table = self.filter_providers()
             for record in table:
@@ -121,15 +220,7 @@ class Program(QtWidgets.QMainWindow):
                 self.table.delete_record_from_table(record[0], "Сотрудники")
             self.table.display_table("Сотрудники")
 
-    def filter_tabs_changed(self):
-        self.window.filterCombobox.setCurrentIndex(self.window.filterTabs.currentIndex())
-        self.table.display_table(self.window.filterCombobox.currentText())
-        if self.window.filterTabs.currentIndex() == 0:
-            self.window.tablesTabs.setCurrentIndex(0)
-        if self.window.filterTabs.currentIndex() == 1:
-            self.window.tablesTabs.setCurrentIndex(3)
-        if self.window.filterTabs.currentIndex() == 2:
-            self.window.tablesTabs.setCurrentIndex(4)
+        self.reset()
 
     def filter_providers(self):
         table = self.table.get_table("Поставщики")
@@ -179,11 +270,10 @@ class Program(QtWidgets.QMainWindow):
         self.table.display_table("Имущество", table)
 
         if len(self.window.filterPropSearchEdit.text()) != 0:
-            table = self.convert_table_to_string(table)
+            table = self.table.convert_table_to_string(table)
             table = self.table.left_found_records(table, self.window.filterPropSearchEdit.text(),
                                                   self.window.filterPropSearchCB.currentIndex() + 2)
             self.table.color_by_matching_with_another_table(table, (90, 200, 90))
-            pass
 
         return table
 
@@ -212,33 +302,12 @@ class Program(QtWidgets.QMainWindow):
         self.table.display_table("Сотрудники", table)
 
         if len(self.window.filterStaffSeachEdit.text()) != 0:
-            table = self.convert_table_to_string(table)
+            table = self.table.convert_table_to_string(table)
             table = self.table.left_found_records(table, self.window.filterStaffSeachEdit.text(),
                                                   self.window.filterStaffSortNSearchCB.currentIndex() + 2)
             self.table.color_by_matching_with_another_table(table, (90, 200, 90))
 
         return table
-
-    @staticmethod
-    def convert_table_to_string(table):
-        new_table = []
-        for record in table:
-            new_record = []
-            for value in record:
-                new_record.append(str(value))
-            new_table.append(new_record)
-
-        return new_table
-
-    def filter_combobox_changed(self):
-        self.window.filterTabs.setCurrentIndex(self.window.filterCombobox.currentIndex())
-        self.table.display_table(self.window.filterCombobox.currentText())
-        if self.window.filterTabs.currentIndex() == 0:
-            self.window.tablesTabs.setCurrentIndex(0)
-        if self.window.filterTabs.currentIndex() == 1:
-            self.window.tablesTabs.setCurrentIndex(3)
-        if self.window.filterTabs.currentIndex() == 2:
-            self.window.tablesTabs.setCurrentIndex(4)
 
     def configure_combo_boxes(self):
         def staff_configure():
@@ -346,6 +415,7 @@ class Program(QtWidgets.QMainWindow):
             self.add_record_to_types()
         self.table.update_table(self.window.additionCombobox.currentText())
         self.table.display_table(self.window.additionCombobox.currentText())
+        self.reset()
 
     def addition_combobox_changed(self):
         index = self.window.additionCombobox.currentIndex()
@@ -360,7 +430,8 @@ class Program(QtWidgets.QMainWindow):
 
     def table_tabs_changed(self):
         index = self.window.tablesTabs.currentIndex()
-        self.table.display_table(self.table.get_table_name(index))
+        table_name = self.table.get_table_name(index)
+        self.table.display_table(table_name)
 
     @staticmethod
     def string_validate(string, field):
@@ -395,7 +466,7 @@ class Program(QtWidgets.QMainWindow):
         if error is not None:
             self.window.message.setText(error)
         else:
-            data = self.table.get_table("Имущество")
+            data = self.table.get_table("Имущество", with_id=True)
             existing_ids = [record[0] for record in data]
             if int(self.window.propertyIdEdit.text()) in existing_ids:
                 self.window.message.setText("Такой код предмета уже существует")
@@ -786,6 +857,9 @@ class Table:
         self.db.commit()
         self.update_table(table_name)
 
+    def update_record_in_table(self, table_name, identifier, field_index, new_value):
+        pass
+
     @staticmethod
     def left_found_records(table, searching_word, row_number):
         result_table = []
@@ -798,11 +872,21 @@ class Table:
                         k += 1
                         index = i + 1
                         break
-                    pass
             if k == len(searching_word):
                 result_table.append(record)
 
         return result_table
+
+    @staticmethod
+    def convert_table_to_string(table):
+        new_table = []
+        for record in table:
+            new_record = []
+            for value in record:
+                new_record.append(str(value))
+            new_table.append(new_record)
+
+        return new_table
 
     @staticmethod
     def descending_sort(table, row_number):
@@ -873,10 +957,12 @@ class Table:
             for column_number, data in enumerate(row_data):
                 if self.table.columnCount() <= column_number:
                     self.table.setColumnCount(self.table.columnCount() + 1)
+                if data is None:
+                    data = ""
                 self.table.setItem(row_number, column_number, QTableWidgetItem(str(data)))
-
+        #
         self.table.setHorizontalHeaderLabels(self.headers[table_name])
-
+        self.table.resizeColumnsToContents()
 
 # QTabBar::tab:selected  {
 #     background-color:rgb(255, 255, 0);
@@ -889,6 +975,7 @@ class Table:
 # }
 # '''
 if __name__ == "__main__":
+    previous_cell = None
     app = QtWidgets.QApplication(sys.argv)
     # app.setStyleSheet(qss)
     MainWindow = QtWidgets.QMainWindow()
