@@ -3,6 +3,7 @@ import sys
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QTableWidgetItem, QMessageBox
 from ui import Ui_MainWindow
+from form2 import UiForm
 import MySQLdb as Mdb
 import inspect
 from string import digits
@@ -13,6 +14,8 @@ class Program(QtWidgets.QMainWindow):
         super(Program, self).__init__()
         self.window = Ui_MainWindow()
         self.window.setupUi(self)
+
+        self.form_2 = UiForm()
 
         headers = {
             "Сотрудники": ["Код сотрудника", "Имя", "Фамилия", "Отчество", "Опыт работы", "Должность", "Отдел"],
@@ -85,6 +88,10 @@ class Program(QtWidgets.QMainWindow):
 
         self.window.removalReturnButton.clicked.connect(self.removal_return_button_clicked)
 
+        self.form_2.pushButton.clicked(self.form_2.user_reply_entered)
+        self.form_2.pushButton.setAutoDefault(True)
+        self.form_2.user_reply.returnPressed.connect(self.form_2.pushButton.click)
+
     def save_cell(self):
         global previous_cell
         row = self.window.tableWidget.currentItem().row()
@@ -126,7 +133,7 @@ class Program(QtWidgets.QMainWindow):
                             self.window.tableWidget.item(previous_cell[0], previous_cell[1]).setText(result[1])
                         elif row_index == 6:
                             self.window.tableWidget.item(previous_cell[0], previous_cell[1]).setText(result[2])
-                        new_value = record[row_index-1]
+                        new_value = record[row_index - 1]
                     else:
                         record = result
                 elif table_name == "Должности":
@@ -246,19 +253,6 @@ class Program(QtWidgets.QMainWindow):
         self.__deleted_records = [[], ""]
 
     def removal_delete_button_clicked(self):
-        button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
-                                            "Вы уверены, что хотите удалить данные?", QMessageBox.Yes, QMessageBox.No)
-        if button_reply == QMessageBox.No:
-            return
-        button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
-                                            "Вы точно уверены?", QMessageBox.Yes,
-                                            QMessageBox.No)
-        if button_reply == QMessageBox.No:
-            return
-
-        self.__deleted_records[0] = []
-        self.__deleted_records[1] = ""
-
         records = []
 
         index = self.window.tablesTabs.currentIndex()
@@ -270,36 +264,54 @@ class Program(QtWidgets.QMainWindow):
             for i, record in enumerate(table):
                 if i == item.row():
                     records.append(record)
-                    # self.__deleted_records[0].append(record)
-                    # self.__deleted_records[1] = table_name
-                    # self.table.delete_record_from_table(record[0], table_name)
-        if table_name == "Типы":
-            table_name = "Типы имущества"
         self.delete_records(table_name, records)
-        self.table.display_table(table_name)
-        self.reset()
 
     def delete_records(self, table_name, records):
-        for record in records:
-            print(record[0], table_name)
-            self.table.delete_record_from_table(record[0], table_name)
-            self.__deleted_records[0].append(record)
-            self.__deleted_records[1] = table_name
+        if table_name == "Типы":
+            button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                                "Если вы удалите тип(ы) имущества - удалятся все записи об имуществе,"
+                                                " которе имеет соответствующий тип(ы). Вы согласны с этим?",
+                                                QMessageBox.Yes, QMessageBox.No)
+            if button_reply == QMessageBox.No:
+                return
+        elif table_name == "Расположения":
+            QMessageBox.information(MainWindow, "Действие отмененно", "Нельзя удалять расположения")
+            return
+        elif table_name == "Отделы":
+            button_reply = QMessageBox.question(MainWindow, "Удаляете отдел?",
+                                                "Хотите отправить сотрудников этого отдела в другой?"
+                                                " (при нажати кнопки \"Нет\" все сотрудники выбранного отдела"
+                                                " будут удалены!", QMessageBox.Yes, QMessageBox.No)
+            staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
+            employees = []
+            for record in records:
+                for employee in staff_table:
+                    if record[0] == employee[6]:
+                        employees.append(employee)
+            self.form_2.show()
+            return
 
-    def filter_delete_button_clicked(self):
         button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
                                             "Вы уверены, что хотите удалить данные?", QMessageBox.Yes, QMessageBox.No)
-        if button_reply == QMessageBox.No:
-            return
-        button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
-                                            "Вы точно уверены?", QMessageBox.Yes,
-                                            QMessageBox.No)
         if button_reply == QMessageBox.No:
             return
 
         self.__deleted_records[0] = []
         self.__deleted_records[1] = ""
 
+        for record in records:
+            self.table.delete_record_from_table(record[0], table_name)
+            self.__deleted_records[0].append(record)
+            self.__deleted_records[1] = table_name
+
+        if table_name == "Типы":
+            table_name = "Типы имущества"
+
+        self.table.display_table(table_name)
+
+        self.reset()
+
+    def filter_delete_button_clicked(self):
         filters = {
             "Сотрудники": self.filter_staff,
             "Имущество": self.filter_property,
@@ -309,42 +321,18 @@ class Program(QtWidgets.QMainWindow):
 
         if self.window.filterTabs.currentIndex() == 2:
             table_name = "Поставщики"
-            table = self.filter_providers()
-            for record in table:
-                for rec in self.table.get_table("Поставщики", with_all_ids=True):
-                    if rec[0] == record[0]:
-                        record = rec
-                        break
-                records.append(record)
-            self.delete_records("Поставщики", records)
-            self.table.display_table("Поставщики")
-
-        if self.window.filterTabs.currentIndex() == 1:
+        elif self.window.filterTabs.currentIndex() == 1:
             table_name = "Имущество"
-            table = self.filter_property()
-            for record in table:
-                for rec in self.table.get_table("Имущество", with_all_ids=True):
-                    if rec[0] == record[0]:
-                        record = rec
-                        break
-                records.append(record)
-            self.delete_records("Имущество", records)
-
-            self.table.display_table("Имущество")
-
-        if self.window.filterTabs.currentIndex() == 0:
+        else:
             table_name = "Сотрудники"
-            table = self.filter_staff()
-            for record in table:
-                for rec in self.table.get_table("Сотрудники", with_all_ids=True):
-                    if rec[0] == record[0]:
-                        record = rec
-                        break
-                records.append(record)
-            self.delete_records("Сотрудники", records)
-            self.table.display_table("Сотрудники")
-
-        self.reset()
+        table = filters[table_name]()
+        for record in table:
+            for rec in self.table.get_table(table_name, with_all_ids=True):
+                if rec[0] == record[0]:
+                    record = rec
+                    break
+            records.append(record)
+        self.delete_records(table_name, records)
 
     def filter_providers(self):
         table = self.table.get_table("Поставщики")
@@ -816,7 +804,7 @@ class Program(QtWidgets.QMainWindow):
             for record in posts_table:
                 p = "".join([letter.lower() for letter in record[1]])
                 if post_str == p:
-                    post_str = post_str[0].upper()+post_str[1:]
+                    post_str = post_str[0].upper() + post_str[1:]
                     result[0] = post_str
                     post = int(record[0])
             if len(result[0]) == 0:
@@ -1178,8 +1166,8 @@ class Table:
         if table_name != "Имущество" and table_name != "Отделы":
             auto_increment = table[-1][0] + 1
 
-            for i in range(0, len(table)-1):
-                if abs(table[i][0] - table[i+1][0]) >= 2:
+            for i in range(0, len(table) - 1):
+                if abs(table[i][0] - table[i + 1][0]) >= 2:
                     auto_increment = table[i][0] + 1
                     break
 
@@ -1359,6 +1347,7 @@ class Table:
         #
         self.table.setHorizontalHeaderLabels(self.headers[table_name])
         self.table.resizeColumnsToContents()
+
 
 #
 # QTabBar::tab:selected  {
