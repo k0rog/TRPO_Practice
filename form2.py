@@ -25,12 +25,21 @@ class UiForm(QWidget):
         self.pushButton = QtWidgets.QPushButton(self)
         self.pushButton.setGeometry(QtCore.QRect(160, 180, 93, 28))
         self.pushButton.setObjectName("pushButton")
+        self.pushButton.setText("Ввести")
+
+        self.questions = []
+        self.answers = []
+        self.answers_got = False
 
         self.user_reply.show()
         self.text.show()
 
-    def user_reply_entered(self):
-        pass
+    def show_self(self, questions):
+        self.questions = questions
+        self.text.setText(self.questions[0])
+        self.questions.pop(0)
+        self.show()
 
-    def print_questions(self):
-        pass
+    def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
+        print(99)
+

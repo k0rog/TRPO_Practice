@@ -88,9 +88,20 @@ class Program(QtWidgets.QMainWindow):
 
         self.window.removalReturnButton.clicked.connect(self.removal_return_button_clicked)
 
-        self.form_2.pushButton.clicked(self.form_2.user_reply_entered)
+        self.form_2.pushButton.clicked.connect(self.user_reply_entered)
         self.form_2.pushButton.setAutoDefault(True)
         self.form_2.user_reply.returnPressed.connect(self.form_2.pushButton.click)
+
+    def user_reply_entered(self):
+        self.form_2.answers.append(self.form_2.user_reply.text())
+        if len(self.form_2.questions) == 0:
+            self.form_2.form2_exit()
+            return
+        self.form_2.text.setText(self.form_2.questions[0])
+        self.form_2.questions.pop(0)
+
+    def form2_exit(self):
+        self.form_2.answers_got = True
 
     def save_cell(self):
         global previous_cell
@@ -282,13 +293,21 @@ class Program(QtWidgets.QMainWindow):
                                                 "Хотите отправить сотрудников этого отдела в другой?"
                                                 " (при нажати кнопки \"Нет\" все сотрудники выбранного отдела"
                                                 " будут удалены!", QMessageBox.Yes, QMessageBox.No)
-            staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
-            employees = []
-            for record in records:
-                for employee in staff_table:
-                    if record[0] == employee[6]:
-                        employees.append(employee)
-            self.form_2.show()
+            if button_reply == QMessageBox.Yes:
+                if not self.form_2.answers_got:
+                    staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
+                    employees = []
+                    for record in records:
+                        for employee in staff_table:
+                            if record[0] == employee[6]:
+                                employees.append(employee)
+                    questions = []
+                    for employee in employees:
+                        string = f"Для сотрудника {employee[2]} {employee[1]} {employee[3]} (код {employee[0]})" \
+                                 f" требуется указать новую должность."
+                        questions.append(string)
+                    self.form_2.show_self(questions)
+
             return
 
         button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
