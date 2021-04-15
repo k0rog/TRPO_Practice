@@ -1,4 +1,3 @@
-# from PyQt5.QtGui import QIcon
 from PyQt5 import QtGui
 import sys
 from PyQt5 import QtCore, QtWidgets
@@ -26,6 +25,8 @@ class Program(QtWidgets.QMainWindow):
             "Типы имущества": ["Тип", "Описание"],
         }
         self.table = Table(self.window, headers)
+
+        self.__deleted_records = [[], ""]
 
         self.form_initialization()
 
@@ -82,9 +83,14 @@ class Program(QtWidgets.QMainWindow):
 
         self.window.removalDeleteButton.clicked.connect(self.removal_delete_button_clicked)
 
+        self.window.removalReturnButton.clicked.connect(self.removal_return_button_clicked)
+
     def save_cell(self):
         global previous_cell
-        previous_cell = self.window.tableWidget.currentItem()
+        row = self.window.tableWidget.currentItem().row()
+        column = self.window.tableWidget.currentItem().column()
+        text = self.window.tableWidget.currentItem().text()
+        previous_cell = (row, column, text)
 
     def update_table(self):
         global previous_cell
@@ -92,66 +98,107 @@ class Program(QtWidgets.QMainWindow):
         caller_frame = current_frame.f_back
         code_obj = caller_frame.f_code
         code_obj_name = code_obj.co_name
-        if code_obj_name == "<module>":
-            k = 0
-            if not(self.window.tablesTabs.currentIndex() == 0 or
-                   self.window.tablesTabs.currentIndex() == 3 or self.window.tablesTabs.currentIndex() == 4):
-                k = 1
-            table_name = self.table.get_table_name(self.window.tablesTabs.currentIndex())
-            table = self.table.get_table(table_name, with_id=True)
-            for i, record in enumerate(table):
-                if i == previous_cell.row():
-                    identifier = record[0]
-                    row_index = previous_cell.column() + k
-                    new_value = self.window.tableWidget.item(previous_cell.row(), previous_cell.column()).text()
-                    record = list(record)
-                    record[row_index] = new_value
-                    print(table_name, identifier, row_index, new_value)
+        if code_obj_name != "<module>":
+            return
 
-                # self.table.update_record_in_table(table_name, record[0], previous_cell.column(), self.window.tableWidget.item(previous_cell.row(), previous_cell.column()))
+        k = 0
+        if self.window.tablesTabs.currentIndex() != 0 and \
+                self.window.tablesTabs.currentIndex() != 3 and self.window.tablesTabs.currentIndex() != 2:
+            k = 1
+        table_name = self.table.get_table_name(self.window.tablesTabs.currentIndex())
+        table = self.table.get_table(table_name, with_id=True)
+        for i, record in enumerate(table):
+            if i == previous_cell[0]:
+                record = list(record)
+                row_index = previous_cell[1] + k
+                new_value = self.window.tableWidget.item(previous_cell[0], previous_cell[1]).text()
+                record[row_index] = new_value
+                identifier = record[0]
 
-    def reset(self):
-        self.configure_combo_boxes()
-        self.window.staffPatEdit.setText("")
-        self.window.staffFNameEdit.setText("")
-        self.window.staffSNameEdit.setText("")
-        self.window.staffExpEdit.setText("")
-        self.window.postsTitleEdit.setText("")
-        self.window.postsDicsEdit.setText("")
-        self.window.postsExpEdit.setText("")
-        self.window.departmentsTitleEdit.setText("")
-        self.window.departmentsIdEdit.setText("")
-        self.window.propertyCostEdit.setText("")
-        self.window.propertyIdEdit.setText("")
-        self.window.propertyEmplIdEdit.setText("")
-        self.window.providersPhoneEdit.setText("")
-        self.window.providersTitleEdit.setText("")
-        self.window.typesTypeEdit.setText("")
-        self.window.typesDiscEdit.setText("")
-        #
-        #
-        self.window.filterStaffDepartCB.setCurrentIndex(0)
-        self.window.filterStaffPostsCB.setCurrentIndex(0)
-        self.window.filterStaffSortNSearchCB.setCurrentIndex(0)
-        table = self.table.get_table("Сотрудники")
-        maximum = max([record[4] for record in table])
-        self.window.filterPropFromSpinBox.setValue(0)
-        self.window.filterStaffExpToSpinB.setValue(maximum)
-        self.window.filterStaffDecRadioB_2.setChecked(True)
-        self.window.filterStaffSeachEdit.setText("")
-        #
-        self.window.filterPropLocationCB.setCurrentIndex(0)
-        self.window.filterPropProvidersCB.setCurrentIndex(0)
-        self.window.filterPropTypeCB.setCurrentIndex(0)
-        self.window.filterPropStateCB.setCurrentIndex(0)
-        self.window.filterPropDecRadioB_2.setChecked(True)
-        self.window.filterPropFromSpinBox.setValue(0)
-        table = self.table.get_table("Имущество")
-        maximum = max([record[6] for record in table])
-        self.window.filterPropToSpinBox.setValue(maximum)
-        self.window.filterPropSearchEdit.setText("")
-        #
-        self.window.filterProvidersSearchEdit.setText("")
+                for j, value in enumerate(record):
+                    record[j] = str(value)
+
+                if table_name == "Сотрудники":
+                    result = self.validate_staff_addition(*record[1:], fk_is_not_number=True)
+                    if result is not None:
+                        record = result[0]
+                        if row_index == 5:
+                            self.window.tableWidget.item(previous_cell[0], previous_cell[1]).setText(result[1])
+                        elif row_index == 6:
+                            self.window.tableWidget.item(previous_cell[0], previous_cell[1]).setText(result[2])
+                        new_value = record[row_index-1]
+                    else:
+                        record = result
+                elif table_name == "Должности":
+                    record = self.validate_posts_addition(*record[1:])
+                elif table_name == "Отделы":
+                    record = self.validate_department_addition(*record)
+                elif table_name == "Имущество":
+                    errors = []
+                    if row_index == 1:
+                        try:
+                            if not self.table.is_id_in_table("Поставщики", int(new_value)):
+                                errors.append("Такой код сотрудника не существует")
+                        except ValueError:
+                            errors.append("В это поле вводится код поставщика")
+
+                    elif row_index == 2:
+                        try:
+                            if not self.table.is_id_in_table("Сотрудники", int(new_value)):
+                                errors.append("Такой код сотрудника не существует")
+                        except ValueError:
+                            errors.append("В это поле вводится код сотрудника")
+
+                    elif row_index == 3:
+                        locations_table = self.table.get_table("Расположения", with_id=True)
+                        location = 0
+                        for rec in locations_table:
+                            loc = str(rec[1]) + str(rec[2]) + str(rec[3])
+                            if new_value == loc:
+                                location = rec[0]
+                                new_value = rec[0]
+                                break
+                        if location == 0:
+                            errors.append("Нет такого расположения")
+                    elif row_index == 4:
+                        types_table = self.table.get_table("Типы имущества", with_id=True)
+                        new_value = "".join([letter.lower() for letter in new_value])
+                        t = 0
+                        for rec in types_table:
+                            ty = "".join([letter.lower() for letter in rec[1]])
+                            if new_value == ty:
+                                t = rec[0]
+                                new_value = rec[0]
+                                break
+                        if t == 0:
+                            errors.append("Нет такого типа")
+                    elif row_index == 5:
+                        error = self.string_validate(new_value, "Состояние")
+                        if error != "":
+                            errors.append(error)
+                    elif row_index == 6:
+                        error = self.int_validate(new_value, "Стоимость")
+                        if error != "":
+                            errors.append(error)
+                    if len(errors) != 0:
+                        self.window.message.setText(errors[0])
+                        self.window.message.exec_()
+                        self.window.tableWidget.item(previous_cell[0], previous_cell[1]).setText(previous_cell[2])
+                        return
+                elif table_name == "Поставщики":
+                    record = self.validate_providers_addition(*record[1:])
+                elif table_name == "Типы имущества":
+                    table_name = "Типы"
+                    record = self.validate_types_addition(*record[1:])
+                if record is None:
+                    self.window.tableWidget.item(previous_cell[0], previous_cell[1]).setText(previous_cell[2])
+                    return
+                record = list(record)
+                record.insert(0, identifier)
+                self.table.update_record_in_table(table_name, identifier, row_index, new_value)
+                self.table.display_table(table_name)
+
+                break
 
     def filter_combobox_changed(self):
         self.filter_table_enable(self.window.filterCombobox.currentIndex())
@@ -173,23 +220,71 @@ class Program(QtWidgets.QMainWindow):
         self.window.filterTabs.setTabEnabled(tabindex, True)
         self.window.filterTabs.setCurrentIndex(tabindex)
 
+    def removal_return_button_clicked(self):
+        table_name = self.__deleted_records[1]
+        records = self.__deleted_records[0]
+
+        if len(records) == 0:
+            self.window.message.setText("Буфер удалённых записей пуст")
+            self.window.message.exec_()
+            return
+
+        with_id = False
+        if table_name == "Имущество" or table_name == "Отделы":
+            with_id = True
+        else:
+            for i in range(0, len(records)):
+                records[i] = records[i][1:]
+
+        for record in records:
+            self.table.insert_into_table(table_name, *record, with_id=with_id)
+
+        if table_name == "Типы":
+            table_name = "Типы имущества"
+        self.table.display_table(table_name)
+
+        self.__deleted_records = [[], ""]
+
     def removal_delete_button_clicked(self):
         button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
                                             "Вы уверены, что хотите удалить данные?", QMessageBox.Yes, QMessageBox.No)
-        if button_reply == QMessageBox.Yes:
-            button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
-                                                "Вы точно уверены?", QMessageBox.Yes,
-                                                QMessageBox.No)
-            if button_reply == QMessageBox.Yes:
-                index = self.window.tablesTabs.currentIndex()
-                table_name = self.table.get_table_name(index)
-                table = self.table.get_table(table_name, with_id=True)
-                for item in self.window.tableWidget.selectedItems():
-                    for i, record in enumerate(table):
-                        if i == item.row():
-                            self.table.delete_record_from_table(record[0], table_name)
-                self.table.display_table(table_name)
-                self.reset()
+        if button_reply == QMessageBox.No:
+            return
+        button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                            "Вы точно уверены?", QMessageBox.Yes,
+                                            QMessageBox.No)
+        if button_reply == QMessageBox.No:
+            return
+
+        self.__deleted_records[0] = []
+        self.__deleted_records[1] = ""
+
+        records = []
+
+        index = self.window.tablesTabs.currentIndex()
+        table_name = self.table.get_table_name(index)
+        table = self.table.get_table(table_name, with_all_ids=True)
+        if table_name == "Типы имущества":
+            table_name = "Типы"
+        for item in self.window.tableWidget.selectedItems():
+            for i, record in enumerate(table):
+                if i == item.row():
+                    records.append(record)
+                    # self.__deleted_records[0].append(record)
+                    # self.__deleted_records[1] = table_name
+                    # self.table.delete_record_from_table(record[0], table_name)
+        if table_name == "Типы":
+            table_name = "Типы имущества"
+        self.delete_records(table_name, records)
+        self.table.display_table(table_name)
+        self.reset()
+
+    def delete_records(self, table_name, records):
+        for record in records:
+            print(record[0], table_name)
+            self.table.delete_record_from_table(record[0], table_name)
+            self.__deleted_records[0].append(record)
+            self.__deleted_records[1] = table_name
 
     def filter_delete_button_clicked(self):
         button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
@@ -202,22 +297,51 @@ class Program(QtWidgets.QMainWindow):
         if button_reply == QMessageBox.No:
             return
 
+        self.__deleted_records[0] = []
+        self.__deleted_records[1] = ""
+
+        filters = {
+            "Сотрудники": self.filter_staff,
+            "Имущество": self.filter_property,
+            "Поставщики": self.filter_providers
+        }
+        records = []
+
         if self.window.filterTabs.currentIndex() == 2:
+            table_name = "Поставщики"
             table = self.filter_providers()
             for record in table:
-                self.table.delete_record_from_table(record[0], "Поставщики")
+                for rec in self.table.get_table("Поставщики", with_all_ids=True):
+                    if rec[0] == record[0]:
+                        record = rec
+                        break
+                records.append(record)
+            self.delete_records("Поставщики", records)
             self.table.display_table("Поставщики")
 
         if self.window.filterTabs.currentIndex() == 1:
+            table_name = "Имущество"
             table = self.filter_property()
             for record in table:
-                self.table.delete_record_from_table(record[0], "Имущество")
+                for rec in self.table.get_table("Имущество", with_all_ids=True):
+                    if rec[0] == record[0]:
+                        record = rec
+                        break
+                records.append(record)
+            self.delete_records("Имущество", records)
+
             self.table.display_table("Имущество")
 
         if self.window.filterTabs.currentIndex() == 0:
+            table_name = "Сотрудники"
             table = self.filter_staff()
             for record in table:
-                self.table.delete_record_from_table(record[0], "Сотрудники")
+                for rec in self.table.get_table("Сотрудники", with_all_ids=True):
+                    if rec[0] == record[0]:
+                        record = rec
+                        break
+                records.append(record)
+            self.delete_records("Сотрудники", records)
             self.table.display_table("Сотрудники")
 
         self.reset()
@@ -278,6 +402,13 @@ class Program(QtWidgets.QMainWindow):
         return table
 
     def filter_staff(self):
+        current_frame = inspect.currentframe()
+        caller_frame = current_frame.f_back
+        code_obj = caller_frame.f_code
+        code_obj_name = code_obj.co_name
+        if code_obj_name == "reset":
+            return
+
         table = self.table.get_table("Сотрудники")
 
         post = self.window.filterStaffPostsCB.currentText()
@@ -401,21 +532,38 @@ class Program(QtWidgets.QMainWindow):
         self.window.additioninputTabs.setCurrentIndex(tabindex)
 
     def addition_add_button_click(self):
+        is_added = False
         if self.window.additionCombobox.currentIndex() == 0:
-            self.add_record_to_staff()
+            is_added = self.add_record_to_staff(self.window.staffFNameEdit.text(), self.window.staffSNameEdit.text(),
+                                                self.window.staffPatEdit.text(), self.window.staffExpEdit.text(),
+                                                self.window.staffPostCB.currentText(),
+                                                self.window.staffDepartmentCB.currentText())
         elif self.window.additionCombobox.currentIndex() == 1:
-            self.add_record_to_posts()
+            is_added = self.add_record_to_posts(self.window.postsTitleEdit.text(),
+                                                self.window.typesDiscEdit.toPlainText(),
+                                                self.window.postsExpEdit.text())
         elif self.window.additionCombobox.currentIndex() == 2:
-            self.add_record_to_departments()
+            is_added = self.add_record_to_departments(self.window.departmentsIdEdit.text(),
+                                                      self.window.departmentsTitleEdit.text())
         elif self.window.additionCombobox.currentIndex() == 3:
-            self.add_record_to_property()
+            is_added = self.add_record_to_property(self.window.propertyIdEdit.text(),
+                                                   self.window.propertyProviderCB.currentText(),
+                                                   self.window.propertyEmplIdEdit.text(),
+                                                   self.window.propertyLocationCB.currentText(),
+                                                   self.window.propertyTypeCB.currentText(),
+                                                   self.window.propertyStateCB.currentText(),
+                                                   self.window.propertyCostEdit.text())
         elif self.window.additionCombobox.currentIndex() == 4:
-            self.add_record_to_providers()
+            is_added = self.add_record_to_providers(self.window.providersTitleEdit.text(),
+                                                    self.window.providersPhoneEdit.text())
         elif self.window.additionCombobox.currentIndex() == 5:
-            self.add_record_to_types()
-        self.table.update_table(self.window.additionCombobox.currentText())
-        self.table.display_table(self.window.additionCombobox.currentText())
-        self.reset()
+            is_added = self.add_record_to_types(self.window.typesTypeEdit.text(),
+                                                self.window.typesDiscEdit.toPlainText())
+        #############################################################
+        if is_added:
+            self.table.update_table(self.window.additionCombobox.currentText())
+            self.table.display_table(self.window.additionCombobox.currentText())
+            self.reset()
 
     def addition_combobox_changed(self):
         index = self.window.additionCombobox.currentIndex()
@@ -432,6 +580,12 @@ class Program(QtWidgets.QMainWindow):
         index = self.window.tablesTabs.currentIndex()
         table_name = self.table.get_table_name(index)
         self.table.display_table(table_name)
+        if table_name == "Расположения":
+            self.window.tableWidget.setEditTriggers(QtWidgets.QTableWidget.NoEditTriggers)
+        else:
+            self.window.tableWidget.setEditTriggers(QtWidgets.QTableWidget.DoubleClicked |
+                                                    QtWidgets.QTableWidget.EditKeyPressed |
+                                                    QtWidgets.QTableWidget.AnyKeyPressed)
 
     @staticmethod
     def string_validate(string, field):
@@ -442,226 +596,365 @@ class Program(QtWidgets.QMainWindow):
         elif len(string) > 45:
             return f"Поле \"{field}\" должно быть короче 45-ти символов"
         else:
-            return None
+            return ""
 
     @staticmethod
     def int_validate(string, field):
         try:
             int(string)
-            return None
+            return ""
         except ValueError:
             return f"Поле \"{field}\" должно быть целочисленным"
 
-    def add_record_to_property(self):
-        self.window.message.setText("")
+    def reset(self):
+        self.configure_combo_boxes()
+        self.window.staffPatEdit.setText("")
+        self.window.staffFNameEdit.setText("")
+        self.window.staffSNameEdit.setText("")
+        self.window.staffExpEdit.setText("")
+        self.window.postsTitleEdit.setText("")
+        self.window.postsDicsEdit.setText("")
+        self.window.postsExpEdit.setText("")
+        self.window.departmentsTitleEdit.setText("")
+        self.window.departmentsIdEdit.setText("")
+        self.window.propertyCostEdit.setText("")
+        self.window.propertyIdEdit.setText("")
+        self.window.propertyEmplIdEdit.setText("")
+        self.window.providersPhoneEdit.setText("")
+        self.window.providersTitleEdit.setText("")
+        self.window.typesTypeEdit.setText("")
+        self.window.typesDiscEdit.setText("")
+        #
+        #
+        self.window.filterStaffDepartCB.setCurrentIndex(0)
+        self.window.filterStaffPostsCB.setCurrentIndex(0)
+        self.window.filterStaffSortNSearchCB.setCurrentIndex(0)
+        table = self.table.get_table("Сотрудники")
+        maximum = max([record[4] for record in table])
+        self.window.filterPropFromSpinBox.setValue(0)
+        self.window.filterStaffExpToSpinB.setValue(maximum)
+        self.window.filterStaffDecRadioB_2.setChecked(True)
+        self.window.filterStaffSeachEdit.setText("")
+        #
+        self.window.filterPropLocationCB.setCurrentIndex(0)
+        self.window.filterPropProvidersCB.setCurrentIndex(0)
+        self.window.filterPropTypeCB.setCurrentIndex(0)
+        self.window.filterPropStateCB.setCurrentIndex(0)
+        self.window.filterPropDecRadioB_2.setChecked(True)
+        self.window.filterPropFromSpinBox.setValue(0)
+        table = self.table.get_table("Имущество")
+        maximum = max([record[6] for record in table])
+        self.window.filterPropToSpinBox.setValue(maximum)
+        self.window.filterPropSearchEdit.setText("")
+        #
+        self.window.filterProvidersSearchEdit.setText("")
 
-        idd = 0
-        provider = 0
-        responsible_person = 0
-        location = 0
+    # Имущество
+    def validate_property_addition(self, idd_str, provider_str, responsible_person_str, location_str, t_str, state_str,
+                                   cost_str):
+        error = ""
+        errors = [self.int_validate(idd_str, "Код предмета"), self.int_validate(cost_str, "Стоимость"),
+                  self.int_validate(responsible_person_str, "Ответственное лицо")]
+        try:
+            if self.table.is_id_in_table("Имущество", int(idd_str)):
+                errors.append("Такой код предмета уже существует")
+
+            if not self.table.is_id_in_table("Сотрудники", int(responsible_person_str)):
+                errors.append("Такой код сотрудника не существует")
+        except ValueError:
+            pass
+
+        for err in errors:
+            if err != "":
+                error = err
+                break
+
+        self.window.message.setText(error)
+
+        if self.window.message.text() != "":
+            self.window.message.exec_()
+            return
+
         t = 0
-        cost = 0
+        types_table = self.table.get_table("Типы имущества", with_id=True)
+        provider = 0
+        providers_table = self.table.get_table("Поставщики", with_id=True)
+        location = 0
+        locations_table = self.table.get_table("Расположения", with_id=True)
 
-        error = self.int_validate(self.window.propertyIdEdit.text(), "Код предмета")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            data = self.table.get_table("Имущество", with_id=True)
-            existing_ids = [record[0] for record in data]
-            if int(self.window.propertyIdEdit.text()) in existing_ids:
-                self.window.message.setText("Такой код предмета уже существует")
-            else:
-                idd = int(self.window.propertyIdEdit.text())
+        idd = int(idd_str)
 
-        error = self.int_validate(self.window.propertyCostEdit.text(), "Стоимость")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            cost = int(self.window.propertyCostEdit.text())
+        cost = int(cost_str)
 
-        state = self.window.propertyStateCB.currentText()
+        state = state_str
 
-        types_table = self.table.get_table("Типы имущества")
-        for i, record in enumerate(types_table):
-            if record[0] == self.window.propertyTypeCB.currentText():
-                t = i + 1
+        for record in types_table:
+            if record[1] == t_str:
+                t = record[0]
 
-        providers_table = self.table.get_table("Поставщики")
-        for i, record in enumerate(providers_table):
-            if record[0] == self.window.propertyProviderCB.currentText():
-                provider = i + 1
+        for record in locations_table:
+            if str(record[1]) + str(record[2]) + str(record[3]) == location_str:
+                location = record[0]
 
-        locations_table = self.table.get_table("Расположения")
-        for i, record in enumerate(locations_table):
-            if str(record[0]) + str(record[1]) + str(record[2]) == self.window.propertyLocationCB.currentText():
-                location = i + 1
+        for record in providers_table:
+            if record[1] == provider_str:
+                provider = record[0]
 
-        error = self.int_validate(self.window.propertyEmplIdEdit.text(), "Ответственное лицо")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            data = self.table.get_table("Сотрудники")
-            existing_ids = [record[0] for record in data]
-            if int(self.window.propertyEmplIdEdit.text()) in existing_ids:
-                responsible_person = int(self.window.propertyEmplIdEdit.text())
-            else:
-                self.window.message.setText("Такой код сотрудника не существует")
+        responsible_person = int(responsible_person_str)
 
-        if self.window.message.text() != "":
-            self.window.message.exec_()
-            return
+        result = (idd, provider, responsible_person, location, t, state, cost)
 
-        self.table.insert_into_table("Имущество", idd, provider, responsible_person, location, t, state, cost)
+        return result
 
-    def add_record_to_providers(self):
-        self.window.message.setText("")
+    def add_record_to_property(self, idd_str, provider_str, responsible_person_str, location_str, t_str, state_str,
+                               cost_str):
+        record = self.validate_property_addition(idd_str, provider_str, responsible_person_str, location_str, t_str,
+                                                 state_str, cost_str)
 
-        org_name = ""
-        phone = ""
+        if record is None:
+            return False
 
-        error = self.string_validate(self.window.providersTitleEdit.text(), "Наименование организации")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            org_name = self.window.providersTitleEdit.text()
+        idd, provider, responsible_person, location, t, state, cost = record
 
-        error = self.int_validate(self.window.providersPhoneEdit.text(), "Номер телефона")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            phone = self.window.providersPhoneEdit.text()
-            if len(phone) != 12:
-                self.window.message.setText("Не верный формат номера")
+        self.table.insert_into_table("Имущество", idd, provider, responsible_person,
+                                     location, t, state, cost, with_id=True)
+
+        return True
+
+    # Поставщики
+    def validate_providers_addition(self, org_name_str, phone_str):
+        error = ""
+        errors = [self.string_validate(org_name_str, "Наименование организации"),
+                  self.int_validate(phone_str, "Номер телефона")]
+
+        if len(phone_str) != 12:
+            errors.append("Не верный формат номера")
+
+        for err in errors:
+            if err != "":
+                error = err
+                break
+
+        self.window.message.setText(error)
 
         if self.window.message.text() != "":
             self.window.message.exec_()
             return
+
+        org_name = org_name_str
+
+        phone = phone_str
+
+        result = (org_name, phone)
+
+        return result
+
+    def add_record_to_providers(self, org_name_str, phone_str):
+        record = self.validate_providers_addition(org_name_str, phone_str)
+
+        if record is None:
+            return False
+
+        org_name, phone = record
 
         self.table.insert_into_table("Поставщики", org_name, phone)
 
-    def add_record_to_types(self):
-        self.window.message.setText("")
+        return True
 
-        property_type = ""
+    # Типы имущество
+    def validate_types_addition(self, property_type_str, disc_str):
+        error = ""
+        errors = [self.string_validate(property_type_str, "Тип")]
 
-        error = self.string_validate(self.window.typesTypeEdit.text(), "Тип")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            property_type = self.window.typesTypeEdit.text()
+        for err in errors:
+            if err != "":
+                error = err
+                break
 
-        disc = self.window.typesDiscEdit.toPlainText()
+        self.window.message.setText(error)
 
         if self.window.message.text() != "":
             self.window.message.exec_()
-            return
+            return None
+
+        property_type = property_type_str
+
+        disc = disc_str
+
+        result = (property_type, disc)
+
+        return result
+
+    def add_record_to_types(self, property_type_str, disc_str):
+        record = self.validate_types_addition(property_type_str, disc_str)
+
+        if record is None:
+            return False
+
+        property_type, disc = record
 
         self.table.insert_into_table("Типы", property_type, disc)
 
-    def add_record_to_staff(self):
-        self.window.message.setText("")
+        return True
 
-        name = ""
-        surname = ""
-        patronymic = ""
-        experience = 0
+    # Сотрудники
+    def validate_staff_addition(self, name_str, surname_str, patronymic_str, experience_str, post_str, department_str,
+                                fk_is_not_number=False):
+        result = ["", ""]
+        error = ""
         post = 0
+        posts_table = self.table.get_table("Должности", with_id=True)
         department = 0
-
-        error = self.string_validate(self.window.staffFNameEdit.text(), "Имя")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            name = self.window.staffFNameEdit.text()
-
-        error = self.string_validate(self.window.staffSNameEdit.text(), "Фамилия")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            surname = self.window.staffSNameEdit.text()
-
-        error = self.string_validate(self.window.staffPatEdit.text(), "Отчество")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            patronymic = self.window.staffPatEdit.text()
-
-        error = self.int_validate(self.window.staffExpEdit.text(), "Опыт работы")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            experience = self.window.staffExpEdit.text()
-
-        posts_table = self.table.get_table("Должности")
-        for i, record in enumerate(posts_table):
-            if record[0] == self.window.staffPostCB.currentText():
-                post = i + 1
-
         depart_table = self.table.get_table("Отделы")
-        for record in depart_table:
-            if record[1] == self.window.staffDepartmentCB.currentText():
-                department = record[0]
+
+        errors = [self.string_validate(name_str, "Имя"), self.int_validate(experience_str, "Опыт работы"),
+                  self.string_validate(surname_str, "Фамилия"), self.string_validate(patronymic_str, "Отчество")]
+
+        if fk_is_not_number:
+            post_str = "".join([letter.lower() for letter in post_str])
+
+            for record in posts_table:
+                p = "".join([letter.lower() for letter in record[1]])
+                if post_str == p:
+                    post_str = post_str[0].upper()+post_str[1:]
+                    result[0] = post_str
+                    post = int(record[0])
+            if len(result[0]) == 0:
+                errors.append("Нет такой должности")
+
+            department_str = "".join([letter.lower() for letter in department_str])
+
+            for record in depart_table:
+                d = "".join([letter.lower() for letter in record[1]])
+                if department_str == d:
+                    department_str = department_str[0].upper() + department_str[1:]
+                    result[1] = department_str
+                    department = int(record[0])
+            if len(result[1]) == 0:
+                errors.append("Нет такого отдела")
+
+        for err in errors:
+            if err != "":
+                error = err
+                break
+
+        self.window.message.setText(error)
 
         if self.window.message.text() != "":
             self.window.message.exec_()
-            return
+            return None
+
+        name = name_str
+
+        surname = surname_str
+
+        patronymic = patronymic_str
+
+        experience = int(experience_str)
+
+        if not fk_is_not_number:
+            for record in posts_table:
+                if record[1] == post_str:
+                    post = int(record[0])
+
+            for record in depart_table:
+                if record[1] == department_str:
+                    department = int(record[0])
+
+        result.insert(0, (name, surname, patronymic, experience, post, department))
+
+        return result
+
+    def add_record_to_staff(self, name_str, surname_str, patronymic_str, experience_str, post_str, department_str):
+        record = self.validate_staff_addition(name_str, surname_str, patronymic_str, experience_str, post_str,
+                                              department_str)
+
+        if record is None:
+            return False
+
+        name, surname, patronymic, experience, post, department = record[0]
 
         self.table.insert_into_table("Сотрудники", name, surname, patronymic, experience, post, department)
 
-    def add_record_to_posts(self):
-        self.window.message.setText("")
+        return True
 
-        title = ""
-        experience = 0
+    # Должности
+    def validate_posts_addition(self, title_str, disc_str, experience_str):
+        error = ""
+        errors = [self.string_validate(title_str, "Название"), self.int_validate(experience_str, "Требуемый опыт")]
 
-        error = self.string_validate(self.window.postsTitleEdit.text(), "Название")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            title = self.window.postsTitleEdit.text()
+        for err in errors:
+            if err != "":
+                error = err
+                break
 
-        error = self.int_validate(self.window.postsExpEdit.text(), "Требуемый опыт")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            experience = int(self.window.postsExpEdit.text())
-
-        disc = self.window.postsDicsEdit.toPlainText()
+        self.window.message.setText(error)
 
         if self.window.message.text() != "":
             self.window.message.exec_()
-            return
+            return None
+
+        title = title_str
+
+        experience = int(experience_str)
+
+        disc = disc_str
+
+        result = (title, experience, disc)
+
+        return result
+
+    def add_record_to_posts(self, title_str, disc_str, experience_str):
+        record = self.validate_posts_addition(title_str, disc_str, experience_str)
+
+        if record is None:
+            return False
+
+        title, experience, disc = record
 
         self.table.insert_into_table("Должности", title, disc, experience)
 
-    def add_record_to_departments(self):
-        self.window.message.setText("")
+        return True
 
-        title = ""
-        i = 0
+    # Отделы
+    def validate_department_addition(self, id_str, title_str):
+        error = ""
+        errors = [self.string_validate(title_str, "Название отдела"),
+                  self.int_validate(self.window.departmentsIdEdit.text(), "Номер отдела")]
 
-        error = self.string_validate(self.window.departmentsTitleEdit.text(), "Название отдела")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            title = self.window.departmentsTitleEdit.text()
+        if self.table.is_id_in_table("Отделы", int(id_str)):
+            errors.append("Такой номер отдела уже существует")
 
-        error = self.int_validate(self.window.departmentsIdEdit.text(), "Номер отдела")
-        if error is not None:
-            self.window.message.setText(error)
-        else:
-            data = self.table.get_table("Отделы")
-            existing_ids = [record[0] for record in data]
-            if int(self.window.departmentsIdEdit.text()) in existing_ids:
-                self.window.message.setText("Такой номер отдела уже существует")
-            else:
-                i = int(self.window.departmentsIdEdit.text())
+        for err in errors:
+            if err != "":
+                error = err
+                break
+
+        self.window.message.setText(error)
 
         if self.window.message.text() != "":
             self.window.message.exec_()
-            return
+            return None
 
-        self.table.insert_into_table("Отделы", i, title)
+        title = title_str
+
+        i = int(id_str)
+
+        result = (i, title)
+
+        return result
+
+    def add_record_to_departments(self, id_str, title_str):
+        record = self.validate_department_addition(id_str, title_str)
+
+        if record is None:
+            return False
+
+        i, title = record
+
+        self.table.insert_into_table("Отделы", i, title, with_id=True)
+
+        return True
 
 
 class Table:
@@ -670,6 +963,7 @@ class Table:
         self.db = None
         self.tables = {}
         self.tables_with_id = {}
+        self.tables_with_all_ids = {}
         self.headers = headers
         self.connect_base()
 
@@ -681,7 +975,8 @@ class Table:
     def select_tables(self):
         staff_sql = '''SELECT idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.Название, отделы.Название
                                             FROM отделы INNER JOIN (сотрудники INNER JOIN должности ON
-                                            сотрудники.idДолжности = должности.idДолжности) ON отделы.idОтделы = сотрудники.idОтделы ORDER BY сотрудники.idСотрудники'''
+                                            сотрудники.idДолжности = должности.idДолжности) 
+                                            ON отделы.idОтделы = сотрудники.idОтделы ORDER BY сотрудники.idСотрудники'''
         departments_sql = '''SELECT * FROM отделы'''
         posts_sql = '''SELECT Название, Описание, ТребуемыйОпыт FROM должности'''
         providers_sql = '''SELECT НаименованиеОрганизации, телефон FROM поставщики'''
@@ -689,7 +984,8 @@ class Table:
         location_sql = '''SELECT Корпус, Этаж, Кабинет FROM расположения'''
         property_sql = '''SELECT имущество.idИмущество, поставщики.НаименованиеОрганизации,
                  concat(сотрудники.Фамилия,' ', сотрудники.Имя,' ', сотрудники.Отчество),
-                             concat(расположения.Корпус, расположения.Этаж, расположения.Кабинет) AS Расположение, типы.Наименование,
+                             concat(расположения.Корпус, расположения.Этаж, расположения.Кабинет)
+                              AS Расположение, типы.Наименование,
                               имущество.Состояние, имущество.Стоимость 
                              FROM сотрудники INNER JOIN (типы INNER JOIN (расположения INNER JOIN 
                             (имущество INNER JOIN поставщики on имущество.idПоставщики = поставщики.idПоставщики)
@@ -741,6 +1037,36 @@ class Table:
             cursor.execute(queries[key])
             self.tables_with_id[key] = cursor.fetchall()
 
+        staff_sql = '''SELECT idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.idДолжности, отделы.idОтделы
+                                                            FROM отделы INNER JOIN (сотрудники INNER JOIN должности ON
+                                                            сотрудники.idДолжности = должности.idДолжности) ON отделы.idОтделы = сотрудники.idОтделы ORDER BY сотрудники.idСотрудники'''
+        departments_sql = '''SELECT * FROM отделы'''
+        posts_sql = '''SELECT idДолжности, Название, Описание, ТребуемыйОпыт FROM должности'''
+        providers_sql = '''SELECT idПоставщики, НаименованиеОрганизации, телефон FROM поставщики'''
+        types_sql = '''SELECT idТипы, Наименование, Описание FROM типы'''
+        location_sql = '''SELECT idРасположения, Корпус, Этаж, Кабинет FROM расположения'''
+        property_sql = '''SELECT имущество.idИмущество, имущество.idПоставщики, имущество.idОтветственноеЛицо,
+                                             имущество.idРасположения, имущество.idТипы,
+                                              имущество.Состояние, имущество.Стоимость 
+                                             FROM сотрудники INNER JOIN (типы INNER JOIN (расположения INNER JOIN 
+                                            (имущество INNER JOIN поставщики on имущество.idПоставщики = поставщики.idПоставщики)
+                                             ON расположения.idРасположения = имущество.idРасположения) ON типы.idТипы = имущество.idТипы)
+                                              ON сотрудники.idСотрудники = имущество.idОтветственноеЛицо ORDER BY имущество.idИмущество'''
+        queries = {
+            "Сотрудники": staff_sql,
+            "Отделы": departments_sql,
+            "Должности": posts_sql,
+            "Имущество": property_sql,
+            "Поставщики": providers_sql,
+            "Расположения": location_sql,
+            "Типы имущества": types_sql,
+        }
+        cursor = self.db.cursor()
+
+        for key in queries.keys():
+            cursor.execute(queries[key])
+            self.tables_with_all_ids[key] = cursor.fetchall()
+
     def update_table(self, table_name):
         staff_sql = '''SELECT idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.Название, отделы.Название
                                                     FROM отделы INNER JOIN (сотрудники INNER JOIN должности ON
@@ -767,6 +1093,7 @@ class Table:
             "Расположения": location_sql,
             "Типы имущества": types_sql,
         }
+
         cursor = self.db.cursor()
         cursor.execute(queries[table_name])
         self.tables[table_name] = cursor.fetchall()
@@ -800,45 +1127,92 @@ class Table:
         cursor.execute(queries[table_name])
         self.tables_with_id[table_name] = cursor.fetchall()
 
-    def get_table(self, table_name, with_id=False):
+        staff_sql = '''SELECT idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.idДолжности, отделы.idОтделы
+                                                                   FROM отделы INNER JOIN (сотрудники INNER JOIN должности ON
+                                                                   сотрудники.idДолжности = должности.idДолжности) ON отделы.idОтделы = сотрудники.idОтделы ORDER BY сотрудники.idСотрудники'''
+        departments_sql = '''SELECT * FROM отделы'''
+        posts_sql = '''SELECT idДолжности, Название, Описание, ТребуемыйОпыт FROM должности'''
+        providers_sql = '''SELECT idПоставщики, НаименованиеОрганизации, телефон FROM поставщики'''
+        types_sql = '''SELECT idТипы, Наименование, Описание FROM типы'''
+        location_sql = '''SELECT idРасположения, Корпус, Этаж, Кабинет FROM расположения'''
+        property_sql = '''SELECT имущество.idИмущество, имущество.idПоставщики, имущество.idОтветственноеЛицо,
+                                                    имущество.idРасположения, имущество.idТипы,
+                                                     имущество.Состояние, имущество.Стоимость 
+                                                    FROM сотрудники INNER JOIN (типы INNER JOIN (расположения INNER JOIN 
+                                                   (имущество INNER JOIN поставщики on имущество.idПоставщики = поставщики.idПоставщики)
+                                                    ON расположения.idРасположения = имущество.idРасположения) ON типы.idТипы = имущество.idТипы)
+                                                     ON сотрудники.idСотрудники = имущество.idОтветственноеЛицо ORDER BY имущество.idИмущество'''
+        queries = {
+            "Сотрудники": staff_sql,
+            "Отделы": departments_sql,
+            "Должности": posts_sql,
+            "Имущество": property_sql,
+            "Поставщики": providers_sql,
+            "Расположения": location_sql,
+            "Типы имущества": types_sql,
+        }
+
+        cursor.execute(queries[table_name])
+        self.tables_with_all_ids[table_name] = cursor.fetchall()
+
+    def get_table(self, table_name, with_id=False, with_all_ids=False):
         if with_id:
             return self.tables_with_id[table_name]
+        if with_all_ids:
+            return self.tables_with_all_ids[table_name]
+
         return self.tables[table_name]
 
     def get_table_name(self, index):
         names = list(self.headers.keys())
         return names[index]
 
-    def insert_into_table(self, table_name, *values):
+    def insert_into_table(self, table_name, *values, with_id=False):
         cursor = self.db.cursor()
+        if table_name == "Типы":
+            table = self.get_table("Типы имущества", with_id=True)
+        else:
+            table = self.get_table(table_name, with_id=True)
 
-        if table_name == "Сотрудники":
-            cursor.execute("INSERT INTO сотрудники (Имя, Фамилия, Отчество, ОпытРаботы, idДолжности, idОтделы) "
-                           f"VALUES('{values[0]}', '{values[1]}', '{values[2]}',"
-                           f" '{values[3]}', '{values[4]}', '{values[5]}')")
+        auto_increment = 0
+        if table_name != "Имущество" and table_name != "Отделы":
+            auto_increment = table[-1][0] + 1
 
-        elif table_name == "Должности":
-            cursor.execute("INSERT INTO должности (Название, Описание, ТребуемыйОпыт) "
-                           f"VALUES('{values[0]}', '{values[1]}', '{values[2]}')")
+            for i in range(0, len(table)-1):
+                if abs(table[i][0] - table[i+1][0]) >= 2:
+                    auto_increment = table[i][0] + 1
+                    break
 
-        elif table_name == "Отделы":
-            cursor.execute(f"INSERT INTO отделы(idОтделы, Название) VALUES ('{values[0]}', '{values[1]}')")
+        cursor.execute(f"SELECT * FROM {table_name}")
+        headers = cursor.description
 
-        elif table_name == "Типы":
-            cursor.execute("INSERT INTO типы (Наименование, Описание) "
-                           f"VALUES('{values[0]}', '{values[1]}')")
-
-        elif table_name == "Поставщики":
-            cursor.execute("INSERT INTO поставщики (НаименованиеОрганизации, телефон) "
-                           f"VALUES('{values[0]}', '{values[1]}')")
-
-        elif table_name == "Имущество":
-            cursor.execute("INSERT INTO имущество (idИмущество, idПоставщики, idОтветственноеЛицо,"
-                           " idРасположения, idТипы, Состояние, Стоимость) "
-                           f"VALUES('{values[0]}', '{values[1]}', '{values[2]}',"
-                           f" '{values[3]}', '{values[4]}', '{values[5]}', '{values[6]}')")
-
+        table_name = table_name[0].lower() + table_name[1:]
+        sql = f"INSERT INTO {table_name} ("
+        for header in headers:
+            sql += header[0] + ", "
+        sql = sql[0:-2]
+        sql += ") VALUES("
+        if with_id:
+            for value in values:
+                try:
+                    sql += f"\'{int(value)}\', "
+                except ValueError:
+                    sql += f"\'{value}\', "
+        else:
+            sql += f"\'{int(auto_increment)}\', "
+            for value in values:
+                try:
+                    sql += f"\'{int(value)}\', "
+                except ValueError:
+                    sql += f"\'{value}\', "
+        sql = sql[0:-2]
+        sql += ");"
+        cursor.execute(sql)
         self.db.commit()
+        if table_name == "типы":
+            table_name = "Типы имущества"
+        table_name = table_name[0].upper() + table_name[1:]
+        self.update_table(table_name)
 
     def get_current_table(self):
         result_table = []
@@ -855,10 +1229,31 @@ class Table:
         cursor = self.db.cursor()
         cursor.execute(sql_query)
         self.db.commit()
+        if table_name == "Типы":
+            table_name = "Типы имущества"
         self.update_table(table_name)
 
-    def update_record_in_table(self, table_name, identifier, field_index, new_value):
-        pass
+    def update_record_in_table(self, table_name, identifier, row_index, new_value):
+        cursor = self.db.cursor()
+        cursor.execute(f"SELECT * FROM {table_name}")
+        headers = []
+        for header in cursor.description:
+            headers.append(header[0])
+
+        if isinstance(new_value, str):
+            sql_query = f"UPDATE {table_name} SET {headers[row_index]} = '{new_value}' WHERE {headers[0]} = {identifier};"
+        else:
+            sql_query = f"UPDATE {table_name} SET {headers[row_index]} = {new_value} WHERE {headers[0]} = {identifier};"
+        cursor.execute(sql_query)
+        self.db.commit()
+        self.update_table(table_name)
+
+    def is_id_in_table(self, table_name, identifier):
+        table = self.get_table(table_name, with_id=True)
+        existing_ids = [record[0] for record in table]
+        if identifier in existing_ids:
+            return True
+        return False
 
     @staticmethod
     def left_found_records(table, searching_word, row_number):
@@ -948,6 +1343,7 @@ class Table:
                         self.table.item(i, j).setBackground(QtGui.QColor(r, g, b))
 
     def display_table(self, table_name, table=None):
+
         if table is None:
             table = self.get_table(table_name)
         self.table.setRowCount(0)
@@ -964,18 +1360,24 @@ class Table:
         self.table.setHorizontalHeaderLabels(self.headers[table_name])
         self.table.resizeColumnsToContents()
 
+#
 # QTabBar::tab:selected  {
 #     background-color:rgb(255, 255, 0);
 # }
 
 
-# qss = '''
-# QTabBar::tab {
-#     background-color:rgb(220, 220, 0);
-# }
-# '''
+qss = '''
+* {
+    color: rgb(255, 255, 255);
+    background-color: rgb(34,34,47);
+}
+
+QTabBar::tab {
+    background-color:rgb(255, 105, 91);
+}
+'''
 if __name__ == "__main__":
-    previous_cell = None
+    previous_cell = QtWidgets.QTableWidgetItem()
     app = QtWidgets.QApplication(sys.argv)
     # app.setStyleSheet(qss)
     MainWindow = QtWidgets.QMainWindow()
