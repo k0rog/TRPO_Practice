@@ -92,6 +92,7 @@ class Program(QtWidgets.QMainWindow):
         text = self.window.tableWidget.currentItem().text()
         previous_cell = (row, column, text)
 
+    # I HATE THIS METHOD. I WON'T LOOK HERE EVER. EVEN If THERE IS UNNECESSARY THINGS
     def update_table(self):
         global previous_cell
         current_frame = inspect.currentframe()
@@ -196,6 +197,8 @@ class Program(QtWidgets.QMainWindow):
                 record = list(record)
                 record.insert(0, identifier)
                 self.table.update_record_in_table(table_name, identifier, row_index, new_value)
+                if table_name == "Типы":
+                    table_name = "Типы имущества"
                 self.table.display_table(table_name)
 
                 break
@@ -259,7 +262,7 @@ class Program(QtWidgets.QMainWindow):
                     records.append(record)
         self.delete_records(table_name, records)
 
-    def get_answers(self, table_name, questions, error_text, row_index, input_mode):
+    def get_answers(self, table_name, questions, error_text, row_index, input_mode, self_value, self_id_error):
         answers = []
         table = self.table.get_table(table_name, with_all_ids=True)
         for i, question in enumerate(questions):
@@ -281,18 +284,25 @@ class Program(QtWidgets.QMainWindow):
                     elif reply == QMessageBox.No:
                         break
                 answer = answer[0]
+                flag = False
                 for record in table:
                     value = record[row_index]
                     if input_mode == 0:
-                        value = record[row_index][0].upper()+record[row_index][1:].lower()
+                        value = value[0].upper() + value[1:].lower()
                         if len(answer) == 1:
                             answer = answer[0].upper()
                         elif len(answer) > 1:
                             answer = answer[0].upper() + answer[1:].lower()
                     if value == answer:
+                        if value == self_value:
+                            QMessageBox.information(MainWindow, "Неправильные данные", self_id_error)
+                            flag = True
+                            break
                         answered = True
                         answers.append((i, record[0]))
                         break
+                if flag:
+                    continue
                 if answered is False:
                     QMessageBox.information(MainWindow, "Неправильные данные", error_text)
         return answers
@@ -308,32 +318,51 @@ class Program(QtWidgets.QMainWindow):
         elif table_name == "Расположения":
             QMessageBox.information(MainWindow, "Действие отмененно", "Нельзя удалять расположения")
             return
+        elif table_name == "Поставщики":
+            QMessageBox.information(MainWindow, "Действие отмененно", "Нельзя удалять поставщиков. Тут указаны те"
+                                                                      " предприятия, которые хоть раз поставили"
+                                                                      " что-либо.")
+            return
         elif table_name == "Отделы":
-            button_reply = QMessageBox.question(MainWindow, "Удаляете отдел?",
-                                                "Хотите отправить сотрудников этого отдела в другой?"
-                                                " (при нажати кнопки \"Нет\" все сотрудники выбранного отдела"
-                                                " будут удалены!", QMessageBox.Yes, QMessageBox.No)
-            if button_reply == QMessageBox.Yes:
-                staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
-                employees = []
-                for record in records:
-                    for employee in staff_table:
-                        if record[0] == employee[6]:
-                            employees.append(employee)
+            staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
+
+            departments = []
+            for depart in records:
+                for employee in staff_table:
+                    if depart[0] == employee[6]:
+                        departments.append(depart)
+                        break
+
+            for depart in departments:
+                button_reply = QMessageBox.question(MainWindow, "Удаляете отдел?",
+                                                    f"Хотите отправить сотрудников этого отдела ({depart[1]}) в другой?"
+                                                    " (при нажати кнопки \"Нет\" все сотрудники выбранного отдела"
+                                                    " будут удалены!)", QMessageBox.Yes, QMessageBox.No)
+                if button_reply == QMessageBox.No:
+                    continue
+
+                this_depart_employees = []
+                for employee in staff_table:
+                    if employee[6] == depart[0]:
+                        this_depart_employees.append(employee)
+
                 questions = []
-                for employee in employees:
+                for employee in this_depart_employees:
                     string = f"Для сотрудника {employee[2]} {employee[1]} {employee[3]} (код {employee[0]})" \
-                             f" требуется указать новую должность."
+                             f" требуется указать новый отдел."
                     questions.append(string)
 
-                answers = self.get_answers("Отделы", questions, "Нет такого отдела", 1, 0)
-                for i in range(0, len(answers)):
-                    self.table.update_record_in_table("Сотрудники", employees[i][0], 6, answers[i])
+                answers = self.get_answers("Отделы", questions, "Нет такого отдела", 1, 0, depart[1],
+                                           "Вы ввели тот же отдел, что удаляете!")
 
-                employees = employees[len(answers):]
-                for employee in employees:
-                    self.table.delete_record_from_table(employee[0], "Сотрудники")
+                button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                                    "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
+                                                    QMessageBox.No)
+                if button_reply == QMessageBox.No:
+                    return
 
+                for answer in answers:
+                    self.table.update_record_in_table("Сотрудники", this_depart_employees[answer[0]][0], 6, answer[1])
         elif table_name == "Сотрудники":
             property_table = self.table.get_table("Имущество", with_all_ids=True)
             employees = []
@@ -341,7 +370,6 @@ class Program(QtWidgets.QMainWindow):
                 for item in property_table:
                     if item[2] == employee[0]:
                         employees.append(employee)
-                        records.remove(employee)
                         break
 
             for employee in employees:
@@ -356,8 +384,6 @@ class Program(QtWidgets.QMainWindow):
                 if button_reply == QMessageBox.No:
                     continue
 
-                employees.remove(employee)
-
                 this_employee_items = []
                 for item in property_table:
                     if employee[0] == item[2]:
@@ -369,81 +395,65 @@ class Program(QtWidgets.QMainWindow):
                              f" Укажите новое ответственное лицо (код сотрудника)."
                     questions.append(string)
 
-                answers = self.get_answers("Сотрудники", questions, "Нет такого сотрудника", 0, 1)
-                print(answers)
-                print(this_employee_items)
-                # for answer in answers:
-                #     self.table.update_record_in_table("Имущество", employee[0], 2, answer[1])
-            #
-            #     for answer in reversed(answers):
-            #         this_employee_items.pop(answer[0])
-            #
-            #     # for item in items:
-            #     #     self.table.delete_record_from_table(item[0], "Имущество")
-            #     print(this_employee_items)
-            #     print()
-            # print(employees)
-            records = employees
-            # button_reply = QMessageBox.question(MainWindow, "Удаляете сотрудника?",
-            #                                     "Этот сотрудник ответственен за некоторое имущество."
-            #                                     " Хотите назначить новых ответственных лиц?"
-            #                                     " (при нажати кнопки \"Нет\" всё имущество, за которое ответственен"
-            #                                     " этот сотрудник"
-            #                                     " будет удалено!)", QMessageBox.Yes, QMessageBox.No)
-            # if button_reply == QMessageBox.Yes:
-            #     rec = []
-            #     property_table = self.table.get_table("Имущество", with_all_ids=True)
-            #     for record in records:
-            #         for item in property_table:
-            #             if item[2] == record[0]:
-            #                 button_reply = QMessageBox.question(MainWindow, "Удаляете сотрудника?",
-            #                                                     f"Этот сотрудник (код {record[0]})"
-            #                                                     f" ответственен за некоторое имущество."
-            #                                                     " Хотите назначить новых ответственных лиц?"
-            #                                                     " (при нажати кнопки \"Нет\" всё имущество,"
-            #                                                     " за которое ответственен"
-            #                                                     " этот сотрудник"
-            #                                                     " будет удалено!)", QMessageBox.Yes, QMessageBox.No)
-            #                 if button_reply == QMessageBox.Yes:
-            #                     rec.append(record)
-            #                     records.remove(record)
-            #     items = []
-            #     for record in rec:
-            #         for item in property_table:
-            #             if record[0] == item[2]:
-            #                 items.append(item)
-            #     questions = []
-            #     items2 = []
-            #     property_table_2 = self.table.get_table("Имущество")
-            #     for item in items:
-            #         for item2 in property_table_2:
-            #             if item2[0] == item[0]:
-            #                 items2.append(item2)
-            #     for item in items2:
-            #         string = f"Тип: {item[4]}; расположение: {item[3]}; код: {item[0]}." \
-            #                  f" Укажите новое ответственное лицо (код сотрудника)."
-            #         questions.append(string)
-            #
-            #     answers = self.get_answers("Сотрудники", questions, "Нет такого сотрудника", 0, 1)
-            #     for answer in answers:
-            #         self.table.update_record_in_table("Имущество", items[answer[0]][0], 2, answer[1])
-            #     # for i in range(0, len(answers)):
-            #     #     self.table.update_record_in_table("Имущество", items[i][0], 2, answers[i])
-            #
-            #     for answer in answers:
-            #         items.pop(answer[0])
-            #
-            #     # for item in items:
-            #     #     self.table.delete_record_from_table(item[0], "Имущество")
-            #     print(answers)
-            #     print(items)
-            #     print()
+                answers = self.get_answers("Сотрудники", questions, "Нет такого сотрудника", 0, 1, employee[0],
+                                           "Вы ввели того же сотрудника, которого удаляете!")
 
-            return
-        button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
-                                            "Вы уверены, что хотите удалить данные?", QMessageBox.Yes, QMessageBox.No)
-        if button_reply == QMessageBox.No:
-            return
+                button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                                    "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
+                                                    QMessageBox.No)
+                if button_reply == QMessageBox.No:
+                    return
+
+                for answer in answers:
+                    self.table.update_record_in_table("Имущество", this_employee_items[answer[0]][0], 2, answer[1])
+        elif table_name == "Должности":
+            staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
+
+            posts = []
+            for post in records:
+                for employee in staff_table:
+                    if post[0] == employee[5]:
+                        posts.append(post)
+                        break
+
+            for post in posts:
+                button_reply = QMessageBox.question(MainWindow, "Удаляете должность?",
+                                                    f"Хотите назначить сотрудников, имеющих эту должность ({post[1]})"
+                                                    f" на другую?"
+                                                    " (при нажати кнопки \"Нет\" все сотрудники выбранной должности"
+                                                    " будут удалены!)", QMessageBox.Yes, QMessageBox.No)
+                if button_reply == QMessageBox.No:
+                    continue
+
+                this_post_employees = []
+                for employee in staff_table:
+                    if employee[5] == post[0]:
+                        this_post_employees.append(employee)
+
+                questions = []
+                for employee in this_post_employees:
+                    string = f"Для сотрудника {employee[2]} {employee[1]} {employee[3]} (код {employee[0]})" \
+                             f" требуется указать новую должность."
+                    questions.append(string)
+
+                answers = self.get_answers("Должности", questions, "Нет такой должности", 1, 0, post[1],
+                                           "Вы ввели ту же должность, что удаляете!")
+
+                button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                                    "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
+                                                    QMessageBox.No)
+                if button_reply == QMessageBox.No:
+                    return
+
+                for answer in answers:
+                    self.table.update_record_in_table("Сотрудники", this_post_employees[answer[0]][0], 5, answer[1])
+
+        if table_name not in ("Сотрудники", "Отделы", "Должности"):
+            button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                                "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
+                                                QMessageBox.No)
+            if button_reply == QMessageBox.No:
+                return
 
         self.__deleted_records[0] = []
         self.__deleted_records[1] = ""
@@ -456,6 +466,9 @@ class Program(QtWidgets.QMainWindow):
         if table_name == "Типы":
             table_name = "Типы имущества"
 
+        self.table.update_table(table_name)
+        if table_name == "Сотрудники":
+            self.table.update_table("Имущество")
         self.table.display_table(table_name)
 
         self.reset()
@@ -717,12 +730,18 @@ class Program(QtWidgets.QMainWindow):
         index = self.window.tablesTabs.currentIndex()
         table_name = self.table.get_table_name(index)
         self.table.display_table(table_name)
-        if table_name == "Расположения":
-            self.window.tableWidget.setEditTriggers(QtWidgets.QTableWidget.NoEditTriggers)
-        else:
-            self.window.tableWidget.setEditTriggers(QtWidgets.QTableWidget.DoubleClicked |
-                                                    QtWidgets.QTableWidget.EditKeyPressed |
-                                                    QtWidgets.QTableWidget.AnyKeyPressed)
+        # if table_name == "Сотрудники":
+        #     self.table.disable_change_some_cells(last_column=1)
+        # elif table_name == "Должности":
+        #     self.table.disable_change_some_cells(first_column=2)
+        # elif table_name == "Отделы":
+        #     self.table.disable_change_some_cells(last_column=1)
+        # elif table_name == "Имущество":
+        #     self.table.disable_change_some_cells(columns=[0, 4])
+        # elif table_name == "Расположения":
+        #     self.table.disable_change_some_cells()
+        # elif table_name == "Типы имущества":
+        #     self.table.disable_change_some_cells(last_column=1)
 
     @staticmethod
     def string_validate(string, field):
@@ -1110,10 +1129,13 @@ class Table:
         self.select_tables()
 
     def select_tables(self):
-        staff_sql = '''SELECT idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.Название, отделы.Название
-                                            FROM отделы INNER JOIN (сотрудники INNER JOIN должности ON
+        staff_sql = '''SELECT сотрудники.idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.Название, отделы.Название,
+                       IF (COUNT(составкомиссий.idСотрудники) > 0, 'Да', 'Нет') AS 'Учавствовал в инвентаризации'
+                                            FROM составкомиссий INNER JOIN (отделы INNER JOIN (сотрудники INNER JOIN должности ON
                                             сотрудники.idДолжности = должности.idДолжности) 
-                                            ON отделы.idОтделы = сотрудники.idОтделы ORDER BY сотрудники.idСотрудники'''
+                                            ON отделы.idОтделы = сотрудники.idОтделы)
+                                             ON составкомиссий.idСотрудники = сотрудники.idСотрудники
+                                               ORDER BY сотрудники.idСотрудники;'''
         departments_sql = '''SELECT * FROM отделы'''
         posts_sql = '''SELECT Название, Описание, ТребуемыйОпыт FROM должности'''
         providers_sql = '''SELECT НаименованиеОрганизации, телефон FROM поставщики'''
@@ -1383,6 +1405,8 @@ class Table:
             sql_query = f"UPDATE {table_name} SET {headers[row_index]} = {new_value} WHERE {headers[0]} = {identifier};"
         cursor.execute(sql_query)
         self.db.commit()
+        if table_name == "Типы":
+            table_name = "Типы имущества"
         self.update_table(table_name)
 
     def is_id_in_table(self, table_name, identifier):
@@ -1391,6 +1415,22 @@ class Table:
         if identifier in existing_ids:
             return True
         return False
+
+    def disable_change_some_cells(self, **kwargs):
+        if not isinstance(kwargs['rows'], list):
+            if kwargs['last_row'] is None:
+                kwargs['last_row'] = self.table.rowCount()
+            kwargs['rows'] = range(kwargs['first_row'], kwargs['last_row'])
+
+        if not isinstance(kwargs['columns'], list):
+            if kwargs['last_column'] is None:
+                kwargs['last_column'] = self.table.columnCount()
+            kwargs['columns'] = range(kwargs['first_column'], kwargs['last_column'])
+
+        for i in kwargs['rows']:
+            for j in kwargs['columns']:
+                self.table.item(i, j).setFlags(
+                    self.table.item(i, j).flags() & ~QtCore.Qt.ItemIsEditable)
 
     @staticmethod
     def left_found_records(table, searching_word, row_number):
@@ -1480,7 +1520,14 @@ class Table:
                         self.table.item(i, j).setBackground(QtGui.QColor(r, g, b))
 
     def display_table(self, table_name, table=None):
-
+        needed_columns = {
+            "Сотрудники": [None, 0, None, None, 0, 1],
+            "Должности": [None, 0, None, None, 2, None],
+            "Отделы": [None, 0, None, None, 0, 1],
+            "Имущество": [None, 0, None, [0, 4], 0, None],
+            "Расположения": [None, 0, None, None, 0, None],
+            "Типы имущества": [None, 0, None, None, 0, 1]
+        }
         if table is None:
             table = self.get_table(table_name)
         self.table.setRowCount(0)
@@ -1496,6 +1543,11 @@ class Table:
         #
         self.table.setHorizontalHeaderLabels(self.headers[table_name])
         self.table.resizeColumnsToContents()
+
+        if table_name in needed_columns.keys():
+            temp = needed_columns[table_name]
+            self.disable_change_some_cells(rows=temp[0], first_row=temp[1], last_row=temp[2],
+                                           columns=temp[3], first_column=temp[4], last_column=temp[5])
 
 
 #
