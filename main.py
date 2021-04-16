@@ -3,7 +3,6 @@ import sys
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QTableWidgetItem, QMessageBox
 from ui import Ui_MainWindow
-from form2 import UiForm
 import MySQLdb as Mdb
 import inspect
 from string import digits
@@ -14,8 +13,6 @@ class Program(QtWidgets.QMainWindow):
         super(Program, self).__init__()
         self.window = Ui_MainWindow()
         self.window.setupUi(self)
-
-        self.form_2 = UiForm()
 
         headers = {
             "Сотрудники": ["Код сотрудника", "Имя", "Фамилия", "Отчество", "Опыт работы", "Должность", "Отдел"],
@@ -87,21 +84,6 @@ class Program(QtWidgets.QMainWindow):
         self.window.removalDeleteButton.clicked.connect(self.removal_delete_button_clicked)
 
         self.window.removalReturnButton.clicked.connect(self.removal_return_button_clicked)
-
-        self.form_2.pushButton.clicked.connect(self.user_reply_entered)
-        self.form_2.pushButton.setAutoDefault(True)
-        self.form_2.user_reply.returnPressed.connect(self.form_2.pushButton.click)
-
-    def user_reply_entered(self):
-        self.form_2.answers.append(self.form_2.user_reply.text())
-        if len(self.form_2.questions) == 0:
-            self.form_2.form2_exit()
-            return
-        self.form_2.text.setText(self.form_2.questions[0])
-        self.form_2.questions.pop(0)
-
-    def form2_exit(self):
-        self.form_2.answers_got = True
 
     def save_cell(self):
         global previous_cell
@@ -277,6 +259,44 @@ class Program(QtWidgets.QMainWindow):
                     records.append(record)
         self.delete_records(table_name, records)
 
+    def get_answers(self, table_name, questions, error_text, row_index, input_mode):
+        answers = []
+        table = self.table.get_table(table_name, with_all_ids=True)
+        for i, question in enumerate(questions):
+            answered = False
+            while answered is False:
+                dialog = QtWidgets.QInputDialog()
+                if input_mode == 1:
+                    answer = dialog.getInt(MainWindow, "Ввод данных", question)
+                else:
+                    answer = dialog.getText(MainWindow, "Ввод данных", question)
+                if answer[1] is False:
+                    reply = QMessageBox.question(MainWindow, "Что вы хотите сделать?",
+                                                 "Если вы закроете это окно, то все оставшиеся записи удалятся."
+                                                 "Хотите удалить все оставшиеся записи? (если нажмёте нет, то удалится "
+                                                 "только текущая запись)",
+                                                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+                    if reply == QMessageBox.Yes:
+                        return answers
+                    elif reply == QMessageBox.No:
+                        break
+                answer = answer[0]
+                for record in table:
+                    value = record[row_index]
+                    if input_mode == 0:
+                        value = record[row_index][0].upper()+record[row_index][1:].lower()
+                        if len(answer) == 1:
+                            answer = answer[0].upper()
+                        elif len(answer) > 1:
+                            answer = answer[0].upper() + answer[1:].lower()
+                    if value == answer:
+                        answered = True
+                        answers.append((i, record[0]))
+                        break
+                if answered is False:
+                    QMessageBox.information(MainWindow, "Неправильные данные", error_text)
+        return answers
+
     def delete_records(self, table_name, records):
         if table_name == "Типы":
             button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
@@ -294,22 +314,132 @@ class Program(QtWidgets.QMainWindow):
                                                 " (при нажати кнопки \"Нет\" все сотрудники выбранного отдела"
                                                 " будут удалены!", QMessageBox.Yes, QMessageBox.No)
             if button_reply == QMessageBox.Yes:
-                if not self.form_2.answers_got:
-                    staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
-                    employees = []
-                    for record in records:
-                        for employee in staff_table:
-                            if record[0] == employee[6]:
-                                employees.append(employee)
-                    questions = []
-                    for employee in employees:
-                        string = f"Для сотрудника {employee[2]} {employee[1]} {employee[3]} (код {employee[0]})" \
-                                 f" требуется указать новую должность."
-                        questions.append(string)
-                    self.form_2.show_self(questions)
+                staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
+                employees = []
+                for record in records:
+                    for employee in staff_table:
+                        if record[0] == employee[6]:
+                            employees.append(employee)
+                questions = []
+                for employee in employees:
+                    string = f"Для сотрудника {employee[2]} {employee[1]} {employee[3]} (код {employee[0]})" \
+                             f" требуется указать новую должность."
+                    questions.append(string)
+
+                answers = self.get_answers("Отделы", questions, "Нет такого отдела", 1, 0)
+                for i in range(0, len(answers)):
+                    self.table.update_record_in_table("Сотрудники", employees[i][0], 6, answers[i])
+
+                employees = employees[len(answers):]
+                for employee in employees:
+                    self.table.delete_record_from_table(employee[0], "Сотрудники")
+
+        elif table_name == "Сотрудники":
+            property_table = self.table.get_table("Имущество", with_all_ids=True)
+            employees = []
+            for employee in records:
+                for item in property_table:
+                    if item[2] == employee[0]:
+                        employees.append(employee)
+                        records.remove(employee)
+                        break
+
+            for employee in employees:
+                button_reply = QMessageBox.question(MainWindow, "Удаляете сотрудника?",
+                                                    f"Этот сотрудник (код {employee[0]})"
+                                                    f" ответственен за некоторое имущество."
+                                                    " Хотите назначить новых ответственных лиц?"
+                                                    " (при нажати кнопки \"Нет\" всё имущество,"
+                                                    " за которое ответственен"
+                                                    " этот сотрудник"
+                                                    " будет удалено!)", QMessageBox.Yes, QMessageBox.No)
+                if button_reply == QMessageBox.No:
+                    continue
+
+                employees.remove(employee)
+
+                this_employee_items = []
+                for item in property_table:
+                    if employee[0] == item[2]:
+                        this_employee_items.append(item)
+
+                questions = []
+                for item in this_employee_items:
+                    string = f"Тип: {item[4]}; расположение: {item[3]}; код: {item[0]}." \
+                             f" Укажите новое ответственное лицо (код сотрудника)."
+                    questions.append(string)
+
+                answers = self.get_answers("Сотрудники", questions, "Нет такого сотрудника", 0, 1)
+                print(answers)
+                print(this_employee_items)
+                # for answer in answers:
+                #     self.table.update_record_in_table("Имущество", employee[0], 2, answer[1])
+            #
+            #     for answer in reversed(answers):
+            #         this_employee_items.pop(answer[0])
+            #
+            #     # for item in items:
+            #     #     self.table.delete_record_from_table(item[0], "Имущество")
+            #     print(this_employee_items)
+            #     print()
+            # print(employees)
+            records = employees
+            # button_reply = QMessageBox.question(MainWindow, "Удаляете сотрудника?",
+            #                                     "Этот сотрудник ответственен за некоторое имущество."
+            #                                     " Хотите назначить новых ответственных лиц?"
+            #                                     " (при нажати кнопки \"Нет\" всё имущество, за которое ответственен"
+            #                                     " этот сотрудник"
+            #                                     " будет удалено!)", QMessageBox.Yes, QMessageBox.No)
+            # if button_reply == QMessageBox.Yes:
+            #     rec = []
+            #     property_table = self.table.get_table("Имущество", with_all_ids=True)
+            #     for record in records:
+            #         for item in property_table:
+            #             if item[2] == record[0]:
+            #                 button_reply = QMessageBox.question(MainWindow, "Удаляете сотрудника?",
+            #                                                     f"Этот сотрудник (код {record[0]})"
+            #                                                     f" ответственен за некоторое имущество."
+            #                                                     " Хотите назначить новых ответственных лиц?"
+            #                                                     " (при нажати кнопки \"Нет\" всё имущество,"
+            #                                                     " за которое ответственен"
+            #                                                     " этот сотрудник"
+            #                                                     " будет удалено!)", QMessageBox.Yes, QMessageBox.No)
+            #                 if button_reply == QMessageBox.Yes:
+            #                     rec.append(record)
+            #                     records.remove(record)
+            #     items = []
+            #     for record in rec:
+            #         for item in property_table:
+            #             if record[0] == item[2]:
+            #                 items.append(item)
+            #     questions = []
+            #     items2 = []
+            #     property_table_2 = self.table.get_table("Имущество")
+            #     for item in items:
+            #         for item2 in property_table_2:
+            #             if item2[0] == item[0]:
+            #                 items2.append(item2)
+            #     for item in items2:
+            #         string = f"Тип: {item[4]}; расположение: {item[3]}; код: {item[0]}." \
+            #                  f" Укажите новое ответственное лицо (код сотрудника)."
+            #         questions.append(string)
+            #
+            #     answers = self.get_answers("Сотрудники", questions, "Нет такого сотрудника", 0, 1)
+            #     for answer in answers:
+            #         self.table.update_record_in_table("Имущество", items[answer[0]][0], 2, answer[1])
+            #     # for i in range(0, len(answers)):
+            #     #     self.table.update_record_in_table("Имущество", items[i][0], 2, answers[i])
+            #
+            #     for answer in answers:
+            #         items.pop(answer[0])
+            #
+            #     # for item in items:
+            #     #     self.table.delete_record_from_table(item[0], "Имущество")
+            #     print(answers)
+            #     print(items)
+            #     print()
 
             return
-
         button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
                                             "Вы уверены, что хотите удалить данные?", QMessageBox.Yes, QMessageBox.No)
         if button_reply == QMessageBox.No:
