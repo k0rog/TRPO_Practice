@@ -105,9 +105,13 @@ class Program(QtWidgets.QMainWindow):
         self.window.dateEdit_2.setDate(now)
 
     def print_in_word_button_clicked(self):
+        record = self.detect_commission_record()
+        if record is None:
+            return
+
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
-        file_name, _ = QFileDialog.getSaveFileName(self, "Выберите расположение файла", "result.doc",
+        file_name, _ = QFileDialog.getSaveFileName(self, "Выберите расположение файла", f"result{record[0]}.doc",
                                                    "Word (*.doc)", options=options)
         if len(file_name) == 0:
             self.window.message.setText("Вы не выбрали место сохранения!")
@@ -118,7 +122,6 @@ class Program(QtWidgets.QMainWindow):
         file_name = ".".join(s)
         file_name = file_name + ".doc"
 
-        record = self.table.get_table("ИКомиссии")[-1]
         doc = DocxTemplate("text.doc")
         context = {
             'organization_name': "ОАО \"Инвент\"",
@@ -133,10 +136,8 @@ class Program(QtWidgets.QMainWindow):
         doc.save(file_name)
 
         sql = f'''SELECT имущество2.idИмущество, поставщики.НаименованиеОрганизации, имущество2.Состояние, имущество2.Стоимость
-         FROM поставщики INNER JOIN (имущество2 INNER JOIN
-        (икомиссии INNER JOIN составописей ON икомиссии.idИКомиссии = составописей.idИКомиссии)
-         ON имущество2.idИмущество = составописей.idПредмета) ON поставщики.idПоставщики = имущество2.idПоставщики
-        WHERE икомиссии.idИКомиссии = {record[0]}'''
+         FROM поставщики INNER JOIN имущество2 ON поставщики.idПоставщики = имущество2.idПоставщики
+            WHERE имущество2.idИКомиссии = {record[0]}'''
         table = self.table.select_table(sql)
         document = Document(file_name)
 
@@ -163,9 +164,13 @@ class Program(QtWidgets.QMainWindow):
         message1.exec_()
 
     def print_in_excel_button_clicked(self):
+        record = self.detect_commission_record()
+        if record is None:
+            return
+
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
-        file_name, _ = QFileDialog.getSaveFileName(self, "Выберите расположение файла", "result.xlsx",
+        file_name, _ = QFileDialog.getSaveFileName(self, "Выберите расположение файла", f"result{record[0]}.xlsx",
                                                    "Excel (*.xlsx)", options=options)
         if len(file_name) == 0:
             self.window.message.setText("Вы не выбрали место сохранения!")
@@ -176,14 +181,15 @@ class Program(QtWidgets.QMainWindow):
         file_name = ".".join(s)
         file_name = file_name + ".xlsx"
 
-        record = self.table.get_table("ИКомиссии")[-1]
-        sql = '''SELECT SUM(имущество.Стоимость), COUNT(имущество.idИмущество)
-         FROM имущество 
-         WHERE Состояние = \'Утерян\''''
+        sql = f'''SELECT SUM(имущество2.Стоимость), COUNT(имущество2.idИмущество)
+         FROM имущество2 
+         WHERE Состояние = \'Утерян\' AND имущество2.idИКомиссии = {record[0]}'''
         t = self.table.select_table(sql)
-        s = int(t[0][0])
+        try:
+            s = int(t[0][0])
+        except TypeError:
+            s = 0
         count = t[0][1]
-
         data1 = {
             "Номер комиссии": [record[0]],
             "Дата начала проведения": [record[1].strftime("%d-%m-%Y")],
@@ -192,13 +198,13 @@ class Program(QtWidgets.QMainWindow):
             "Количество потерянных предметов": [count],
             "Суммарная стоимость утерянных предметов": [s]
         }
-
-        sql = '''SELECT имущество.idИмущество, имущество.Стоимость, 
-        CONCAT(сотрудники.Фамилия,' ', сотрудники.Имя,' ', сотрудники.Фамилия), имущество.Состояние
-        FROM имущество INNER JOIN сотрудники on имущество.idОтветственноеЛицо = сотрудники.idСотрудники 
-        WHERE Состояние = \'Утерян\''''
+        print(data1)
+        sql = f'''SELECT имущество2.idИмущество, имущество2.Стоимость, имущество2.ОтветственноеЛицо, имущество2.Состояние
+         FROM имущество2 
+         WHERE имущество2.Состояние = \'Утерян\' AND имущество2.idИКомиссии = {record[0]}; '''
+        print(sql)
         property_table = self.table.select_table(sql)
-
+        print(1)
         data2 = {
             "Код предмета": [record[0] for record in property_table],
             "Стоимость": [record[1] for record in property_table],
