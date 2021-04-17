@@ -1,11 +1,17 @@
 from PyQt5 import QtGui
 import sys
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtWidgets import QTableWidgetItem, QMessageBox
+from PyQt5.QtWidgets import QTableWidgetItem, QMessageBox, QFileDialog
 from ui import Ui_MainWindow
 import MySQLdb as Mdb
 import inspect
 from string import digits
+from docx import Document
+from docxtpl import DocxTemplate
+import datetime
+import openpyxl
+from openpyxl.styles import Font
+from openpyxl.styles import Border, Side
 
 
 class Program(QtWidgets.QMainWindow):
@@ -15,7 +21,8 @@ class Program(QtWidgets.QMainWindow):
         self.window.setupUi(self)
 
         headers = {
-            "Сотрудники": ["Код сотрудника", "Имя", "Фамилия", "Отчество", "Опыт работы", "Должность", "Отдел"],
+            "Сотрудники": ["Код сотрудника", "Имя", "Фамилия", "Отчество", "Опыт работы", "Должность", "Отдел",
+                           "Учавствовал в инвентаризации"],
             "Должности": ["Название долнжости", "Описание", "Требуемый опыт"],
             "Отделы": ["Номер отдела", "Название отдела"],
             "Имущество": ["Код предмета", "Поставщик", "Ответственной лицо", "Расположение", "Тип", "Состояние",
@@ -23,6 +30,8 @@ class Program(QtWidgets.QMainWindow):
             "Поставщики": ["Наименование организации", "Телефон"],
             "Расположения": ["Корпус", "Этаж", "Кабинет"],
             "Типы имущества": ["Тип", "Описание"],
+            "ИКомиссии": ["Номер комиссии", "Дата начала", "Дата окончания", "Причина проверки",
+                          "Количество обнаруженных потерь"]
         }
         self.table = Table(self.window, headers)
 
@@ -31,7 +40,8 @@ class Program(QtWidgets.QMainWindow):
         self.form_initialization()
 
     def form_initialization(self):
-        tabs = ["Сотрудники", "Должности", "Отделы", "Имущество", "Поставщики", "Расположения", "Типы имущества"]
+        tabs = ["Сотрудники", "Должности", "Отделы", "Имущество", "Поставщики", "Расположения",
+                "Типы имущества", "ИКомиссии"]
         for tab in tabs:
             temp = QtWidgets.QWidget()
             temp.setGeometry(QtCore.QRect(0, 0, 0, 0))
@@ -84,6 +94,196 @@ class Program(QtWidgets.QMainWindow):
         self.window.removalDeleteButton.clicked.connect(self.removal_delete_button_clicked)
 
         self.window.removalReturnButton.clicked.connect(self.removal_return_button_clicked)
+
+        self.window.option_tabs.setCurrentIndex(0)
+        self.window.option_tabs.currentChanged.connect(self.option_tabs_changed)
+        self.window.printInWordButton.clicked.connect(self.print_in_word_button_clicked)
+        self.window.printInExcel.clicked.connect(self.print_in_excel_button_clicked)
+
+        now = datetime.datetime.now()
+        self.window.dateEdit.setDate(now)
+        self.window.dateEdit_2.setDate(now)
+
+    def print_in_word_button_clicked(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        file_name, _ = QFileDialog.getSaveFileName(self, "Выберите расположение файла", "result.doc",
+                                                   "Word (*.doc)", options=options)
+        if len(file_name) == 0:
+            self.window.message.setText("Вы не выбрали место сохранения!")
+            self.window.message.exec_()
+            return
+        s = file_name.split(".")
+        s = s[:-1]
+        file_name = ".".join(s)
+        file_name = file_name + ".doc"
+
+        record = self.table.get_table("ИКомиссии")[-1]
+        doc = DocxTemplate("text.doc")
+        context = {
+            'organization_name': "ОАО \"Инвент\"",
+            'structure_department_name': "ПО-32",
+            'start_date': f'{record[1].strftime("%d-%m-%Y")}',
+            'end_date': f'{record[2].strftime("%d-%m-%Y")}',
+            'now_date': f'{datetime.datetime.now().strftime("%d-%m-%Y")}',
+            'reason': f'{record[3]}'
+        }
+
+        doc.render(context)
+        doc.save(file_name)
+
+        sql = f'''SELECT имущество2.idИмущество, поставщики.НаименованиеОрганизации, имущество2.Состояние, имущество2.Стоимость
+         FROM поставщики INNER JOIN (имущество2 INNER JOIN
+        (икомиссии INNER JOIN составописей ON икомиссии.idИКомиссии = составописей.idИКомиссии)
+         ON имущество2.idИмущество = составописей.idПредмета) ON поставщики.idПоставщики = имущество2.idПоставщики
+        WHERE икомиссии.idИКомиссии = {record[0]}'''
+        table = self.table.select_table(sql)
+        document = Document(file_name)
+
+        row_count = len(table) + 1
+        column_count = len(table[0])
+        word_table = document.add_table(rows=row_count, cols=column_count)
+        word_table.style = 'Table Grid'
+        headers = ["Код предмета", "Поставщик", "Состояние", "Стоимость"]
+        for i in range(0, 4):
+            cell = word_table.rows[0].cells[i]
+            cell.text = f"{headers[i]}"
+            run = cell.paragraphs[0].runs[0]
+            run.font.bold = True
+        for i in range(1, row_count):
+            for j in range(0, column_count):
+                cell = word_table.rows[i].cells[j]
+                cell.text = f"{table[i - 1][j]}"
+        document.save(file_name)
+
+        message1 = QMessageBox(MainWindow)
+        message1.setWindowTitle("Успех!")
+        message1.setText("Проверьте расположение, там вас ждёт новый файл")
+        message1.setIcon(QMessageBox.Information)
+        message1.exec_()
+
+    def print_in_excel_button_clicked(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        file_name, _ = QFileDialog.getSaveFileName(self, "Выберите расположение файла", "result.xlsx",
+                                                   "Excel (*.xlsx)", options=options)
+        if len(file_name) == 0:
+            self.window.message.setText("Вы не выбрали место сохранения!")
+            self.window.message.exec_()
+            return
+        s = file_name.split(".")
+        s = s[:-1]
+        file_name = ".".join(s)
+        file_name = file_name + ".xlsx"
+
+        record = self.table.get_table("ИКомиссии")[-1]
+        sql = '''SELECT SUM(имущество.Стоимость), COUNT(имущество.idИмущество)
+         FROM имущество 
+         WHERE Состояние = \'Утерян\''''
+        t = self.table.select_table(sql)
+        s = int(t[0][0])
+        count = t[0][1]
+
+        data1 = {
+            "Номер комиссии": [record[0]],
+            "Дата начала проведения": [record[1].strftime("%d-%m-%Y")],
+            "Дата окончания проведения": [record[2].strftime("%d-%m-%Y")],
+            "Причина проверки": [record[3]],
+            "Количество потерянных предметов": [count],
+            "Суммарная стоимость утерянных предметов": [s]
+        }
+
+        sql = '''SELECT имущество.idИмущество, имущество.Стоимость, 
+        CONCAT(сотрудники.Фамилия,' ', сотрудники.Имя,' ', сотрудники.Фамилия), имущество.Состояние
+        FROM имущество INNER JOIN сотрудники on имущество.idОтветственноеЛицо = сотрудники.idСотрудники 
+        WHERE Состояние = \'Утерян\''''
+        property_table = self.table.select_table(sql)
+
+        data2 = {
+            "Код предмета": [record[0] for record in property_table],
+            "Стоимость": [record[1] for record in property_table],
+            "Ответственные лица": [record[2] for record in property_table],
+            "Состояние": [record[3] for record in property_table]
+        }
+        my_wb = openpyxl.Workbook()
+        my_wb.active.title = "Обобщённые данные"
+        my_wb.create_sheet(index=1, title="Предметы")
+        my_wb.active.column_dimensions['A'].width = 20
+        my_wb.active.column_dimensions['B'].width = 27
+        my_wb.active.column_dimensions['C'].width = 32
+        my_wb.active.column_dimensions['D'].width = 20
+        my_wb.active.column_dimensions['E'].width = 35
+        my_wb.active.column_dimensions['F'].width = 45
+
+        header_border = Border(top=Side(border_style='thick', color='FF000000'),
+                               right=Side(border_style='thick', color='FF000000'),
+                               bottom=Side(border_style='thick', color='FF000000'),
+                               left=Side(border_style='thick', color='FF000000'))
+
+        simple_border = Border(top=Side(border_style='thin', color='FF000000'),
+                               right=Side(border_style='thin', color='FF000000'),
+                               bottom=Side(border_style='thin', color='FF000000'),
+                               left=Side(border_style='thin', color='FF000000'))
+
+        for i, key in enumerate(data1.keys()):
+            my_wb.active.cell(row=1, column=i + 1).value = key
+            my_wb.active.cell(row=1, column=i + 1).font = Font(size=10, name='Comic Sans MS')
+            for j, value in enumerate(data1[key]):
+                my_wb.active.cell(row=1 + j + 1, column=i + 1).value = value
+                my_wb.active.cell(row=1 + j + 1, column=i + 1).font = Font(size=15, name='Comic Sans MS')
+                my_wb.active.cell(row=1 + j + 1, column=i + 1).border = simple_border
+            my_wb.active.cell(row=1, column=i + 1).border = header_border
+
+        my_wb.active = 1
+        my_wb.active.column_dimensions['A'].width = 15
+        my_wb.active.column_dimensions['B'].width = 15
+        my_wb.active.column_dimensions['C'].width = 40
+        my_wb.active.column_dimensions['D'].width = 15
+        for i, key in enumerate(data2.keys()):
+            my_wb.active.cell(row=1, column=i + 1).value = key
+            my_wb.active.cell(row=1, column=i + 1).font = Font(size=10, name='Comic Sans MS')
+            for j, value in enumerate(data2[key]):
+                my_wb.active.cell(row=1 + j + 1, column=i + 1).value = value
+                my_wb.active.cell(row=1 + j + 1, column=i + 1).font = Font(size=12, name='Comic Sans MS')
+                my_wb.active.cell(row=1 + j + 1, column=i + 1).border = simple_border
+            my_wb.active.cell(row=1, column=i + 1).border = header_border
+
+        my_wb.active = 0
+
+        my_wb.save(file_name)
+
+        message1 = QMessageBox(MainWindow)
+        message1.setWindowTitle("Успех!")
+        message1.setText("Проверьте расположение, там вас ждёт новый файл")
+        message1.setIcon(QMessageBox.Information)
+        message1.exec_()
+
+    def detect_commission_record(self):
+        if len(self.window.tableWidget.selectedItems()) > 1:
+            self.window.message.setText("Выберите только одну запись")
+            self.window.message.exec_()
+            return None
+        table = self.table.get_table("ИКомиссии", with_all_ids=True)
+        selected_item = self.window.tableWidget.selectedItems()[0]
+        for i, record in enumerate(table):
+            if i == selected_item.row():
+                return record
+
+    def option_tabs_changed(self):
+        if self.window.option_tabs.currentIndex() == 0:
+            if self.window.additioninputTabs.currentIndex() in [0, 1, 2, 3, 4]:
+                self.window.tablesTabs.setCurrentIndex(self.window.additioninputTabs.currentIndex())
+            elif self.window.additioninputTabs.currentIndex() == 5:
+                self.window.tablesTabs.setCurrentIndex(6)
+        elif self.window.option_tabs.currentIndex() == 2:
+            if self.window.filterTabs.currentIndex() == 0:
+                self.window.tablesTabs.setCurrentIndex(0)
+            elif self.window.filterTabs.currentIndex() == 1:
+                self.window.tablesTabs.setCurrentIndex(3)
+            elif self.window.filterTabs.currentIndex() == 2:
+                self.window.tablesTabs.setCurrentIndex(4)
+        if self.window.option_tabs.currentIndex() == 3:
+            self.window.tablesTabs.setCurrentIndex(7)
 
     def save_cell(self):
         global previous_cell
@@ -200,7 +400,6 @@ class Program(QtWidgets.QMainWindow):
                 if table_name == "Типы":
                     table_name = "Типы имущества"
                 self.table.display_table(table_name)
-
                 break
 
     def filter_combobox_changed(self):
@@ -247,6 +446,12 @@ class Program(QtWidgets.QMainWindow):
         self.table.display_table(table_name)
 
         self.__deleted_records = [[], ""]
+
+        message1 = QMessageBox(MainWindow)
+        message1.setWindowTitle("Успех!")
+        message1.setText("Записи возвращены")
+        message1.setIcon(QMessageBox.Information)
+        message1.exec_()
 
     def removal_delete_button_clicked(self):
         records = []
@@ -324,6 +529,8 @@ class Program(QtWidgets.QMainWindow):
                                                                       " что-либо.")
             return
         elif table_name == "Отделы":
+            values = []
+
             staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
 
             departments = []
@@ -355,15 +562,19 @@ class Program(QtWidgets.QMainWindow):
                 answers = self.get_answers("Отделы", questions, "Нет такого отдела", 1, 0, depart[1],
                                            "Вы ввели тот же отдел, что удаляете!")
 
-                button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
-                                                    "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
-                                                    QMessageBox.No)
-                if button_reply == QMessageBox.No:
-                    return
-
                 for answer in answers:
-                    self.table.update_record_in_table("Сотрудники", this_depart_employees[answer[0]][0], 6, answer[1])
+                    values.append(("Сотрудники", this_depart_employees[answer[0]][0], 6, answer[1]))
+
+            button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                                "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
+                                                QMessageBox.No)
+            if button_reply == QMessageBox.No:
+                return
+
+            for value in values:
+                self.table.update_record_in_table(value[0], value[1], value[2], value[3])
         elif table_name == "Сотрудники":
+            values = []
             property_table = self.table.get_table("Имущество", with_all_ids=True)
             employees = []
             for employee in records:
@@ -398,15 +609,19 @@ class Program(QtWidgets.QMainWindow):
                 answers = self.get_answers("Сотрудники", questions, "Нет такого сотрудника", 0, 1, employee[0],
                                            "Вы ввели того же сотрудника, которого удаляете!")
 
-                button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
-                                                    "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
-                                                    QMessageBox.No)
-                if button_reply == QMessageBox.No:
-                    return
-
                 for answer in answers:
-                    self.table.update_record_in_table("Имущество", this_employee_items[answer[0]][0], 2, answer[1])
+                    values.append(("Имущество", this_employee_items[answer[0]][0], 2, answer[1]))
+
+            button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                                "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
+                                                QMessageBox.No)
+            if button_reply == QMessageBox.No:
+                return
+
+            for value in values:
+                self.table.update_record_in_table(value[0], value[1], value[2], value[3])
         elif table_name == "Должности":
+            values = []
             staff_table = self.table.get_table("Сотрудники", with_all_ids=True)
 
             posts = []
@@ -439,14 +654,19 @@ class Program(QtWidgets.QMainWindow):
                 answers = self.get_answers("Должности", questions, "Нет такой должности", 1, 0, post[1],
                                            "Вы ввели ту же должность, что удаляете!")
 
-                button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
-                                                    "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
-                                                    QMessageBox.No)
-                if button_reply == QMessageBox.No:
-                    return
-
                 for answer in answers:
-                    self.table.update_record_in_table("Сотрудники", this_post_employees[answer[0]][0], 5, answer[1])
+                    values.append(("Сотрудники", this_post_employees[answer[0]][0], 5, answer[1]))
+            button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
+                                                "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
+                                                QMessageBox.No)
+            if button_reply == QMessageBox.No:
+                return
+
+            for value in values:
+                self.table.update_record_in_table(value[0], value[1], value[2], value[3])
+        elif table_name == "ИКомиссии":
+            QMessageBox.information(MainWindow, "Действие отмененно", "Нельзя удалять инвентаризационные комиссии")
+            return
 
         if table_name not in ("Сотрудники", "Отделы", "Должности"):
             button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
@@ -472,6 +692,11 @@ class Program(QtWidgets.QMainWindow):
         self.table.display_table(table_name)
 
         self.reset()
+        message1 = QMessageBox(MainWindow)
+        message1.setWindowTitle("Успех!")
+        message1.setText("Записи удалены")
+        message1.setIcon(QMessageBox.Information)
+        message1.exec_()
 
     def filter_delete_button_clicked(self):
         filters = {
@@ -709,11 +934,19 @@ class Program(QtWidgets.QMainWindow):
         elif self.window.additionCombobox.currentIndex() == 5:
             is_added = self.add_record_to_types(self.window.typesTypeEdit.text(),
                                                 self.window.typesDiscEdit.toPlainText())
+        elif self.window.additionCombobox.currentIndex() == 6:
+            is_added = self.add_record_to_commissions(self.window.dateEdit.text(), self.window.dateEdit_2.text(),
+                                                      self.window.comboBox.currentText())
         #############################################################
         if is_added:
             self.table.update_table(self.window.additionCombobox.currentText())
             self.table.display_table(self.window.additionCombobox.currentText())
             self.reset()
+            message1 = QMessageBox(MainWindow)
+            message1.setWindowTitle("Успех!")
+            message1.setText("Запись добавлена")
+            message1.setIcon(QMessageBox.Information)
+            message1.exec_()
 
     def addition_combobox_changed(self):
         index = self.window.additionCombobox.currentIndex()
@@ -722,6 +955,9 @@ class Program(QtWidgets.QMainWindow):
         if index == 5:
             self.table.display_table("Типы имущества")
             self.window.tablesTabs.setCurrentIndex(6)
+        elif index == 6:
+            self.table.display_table("ИКомиссии")
+            self.window.tablesTabs.setCurrentIndex(7)
         else:
             self.table.display_table(self.window.additionCombobox.currentText())
             self.window.tablesTabs.setCurrentIndex(index)
@@ -730,18 +966,6 @@ class Program(QtWidgets.QMainWindow):
         index = self.window.tablesTabs.currentIndex()
         table_name = self.table.get_table_name(index)
         self.table.display_table(table_name)
-        # if table_name == "Сотрудники":
-        #     self.table.disable_change_some_cells(last_column=1)
-        # elif table_name == "Должности":
-        #     self.table.disable_change_some_cells(first_column=2)
-        # elif table_name == "Отделы":
-        #     self.table.disable_change_some_cells(last_column=1)
-        # elif table_name == "Имущество":
-        #     self.table.disable_change_some_cells(columns=[0, 4])
-        # elif table_name == "Расположения":
-        #     self.table.disable_change_some_cells()
-        # elif table_name == "Типы имущества":
-        #     self.table.disable_change_some_cells(last_column=1)
 
     @staticmethod
     def string_validate(string, field):
@@ -975,6 +1199,12 @@ class Program(QtWidgets.QMainWindow):
                     post_str = post_str[0].upper() + post_str[1:]
                     result[0] = post_str
                     post = int(record[0])
+                    try:
+                        if int(record[3]) > int(experience_str):
+                            errors.append("Сотрудник не может занять эту должность, так как его опыт меньше"
+                                          f"требуемого на этой должности ({record[3]})")
+                    except:
+                        pass
             if len(result[0]) == 0:
                 errors.append("Нет такой должности")
 
@@ -988,6 +1218,15 @@ class Program(QtWidgets.QMainWindow):
                     department = int(record[0])
             if len(result[1]) == 0:
                 errors.append("Нет такого отдела")
+        if not fk_is_not_number:
+            for record in posts_table:
+                if record[1] == post_str:
+                    try:
+                        if int(record[3]) > int(experience_str):
+                            errors.append("Сотрудник не может занять эту должность, так как его опыт меньше"
+                                          f"требуемого на этой должности ({record[3]})")
+                    except:
+                        pass
 
         for err in errors:
             if err != "":
@@ -1112,6 +1351,71 @@ class Program(QtWidgets.QMainWindow):
 
         return True
 
+    # ИКомиссии
+    def add_record_to_commissions(self, start_date_str, end_date_str, reason_str):
+        start_date_str = start_date_str.split('.')
+        start_date_str.reverse()
+        date1 = datetime.datetime(int(start_date_str[0]), int(start_date_str[1]), int(start_date_str[2]))
+        start_date_str = '-'.join(start_date_str)
+        start_date = start_date_str
+
+        end_date_str = end_date_str.split('.')
+        end_date_str.reverse()
+        date2 = datetime.datetime(int(end_date_str[0]), int(end_date_str[1]), int(end_date_str[2]))
+        end_date_str = '-'.join(end_date_str)
+        end_date = end_date_str
+
+        ten_days = datetime.timedelta(days=10)
+
+        self.window.message.setText("")
+        if date2 < datetime.datetime.now()-ten_days:
+            self.window.message.setText("Инвентаризация не могла закончится более 10 дней назад!")
+        if date1 > date2:
+            self.window.message.setText("Дата окончания не может быть меньше даты начала!")
+
+        if len(self.window.message.text()) != 0:
+            self.window.message.exec_()
+            return False
+
+        reason = reason_str
+
+        message1 = QMessageBox()
+        message1.setText("Сейчас внесите результаты инвентаризации")
+        message1.setIcon(QMessageBox.Information)
+        message1.exec_()
+
+        message1.setIcon(QMessageBox.Warning)
+
+        dialog = QtWidgets.QInputDialog()
+        sql = '''SELECT idИмущество, idПоставщики, 
+        CONCAT( '(код ', сотрудники.idСотрудники,') ', сотрудники.Фамилия,' ', сотрудники.Имя,' ', сотрудники.Имя),
+        idРасположения, idТипы, Состояние, Стоимость  
+        FROM имущество INNER JOIN сотрудники on имущество.idОтветственноеЛицо = сотрудники.idСотрудники'''
+        property_table = self.table.select_table(sql)
+        answers = []
+        for record in property_table[:4]:
+            answered = False
+            while answered is False:
+                value, answered = dialog.getItem(self, "Ввод данных", f"Выберите состояние предмета (код {record[0]})",
+                                               ["Исправен", "Требуется починка", "Утерян"], 0, False)
+                if answered is False:
+                    button_reply = QMessageBox.question(MainWindow, "Что вы хотите сделать?",
+                                                        "Отменить добавление комиссии", QMessageBox.Yes,
+                                                        QMessageBox.No)
+                    if button_reply == QMessageBox.Yes:
+                        return
+                    message1.setText("Тогда вводите данные!")
+                    message1.exec_()
+                answers.append((record, value))
+        self.table.insert_into_table("ИКомиссии", start_date, end_date, reason)
+        commissions = self.table.get_table("ИКомиссии")
+        last = commissions[-1][0]
+        for answer in answers:
+            self.table.insert_into_table("Имущество2", *answer[0][1:5], answer[1], answer[0][6], last)
+            self.table.update_record_in_table("Имущество", answer[0][0], 5, answer[1])
+
+        return True
+
 
 class Table:
     def __init__(self, window, headers):
@@ -1128,14 +1432,19 @@ class Table:
         self.db.set_character_set("utf8")
         self.select_tables()
 
+    def select_table(self, sql):
+        cursor = self.db.cursor()
+        cursor.execute(sql)
+        return cursor.fetchall()
+
     def select_tables(self):
         staff_sql = '''SELECT сотрудники.idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.Название, отделы.Название,
-                       IF (COUNT(составкомиссий.idСотрудники) > 0, 'Да', 'Нет') AS 'Учавствовал в инвентаризации'
-                                            FROM составкомиссий INNER JOIN (отделы INNER JOIN (сотрудники INNER JOIN должности ON
-                                            сотрудники.idДолжности = должности.idДолжности) 
-                                            ON отделы.idОтделы = сотрудники.idОтделы)
-                                             ON составкомиссий.idСотрудники = сотрудники.idСотрудники
-                                               ORDER BY сотрудники.idСотрудники;'''
+                       IF (сотрудники.idСотрудники IN (SELECT составкомиссий.idСотрудники FROM составкомиссий),
+                        'Да', 'Нет') AS 'Учавствовал в инвентаризации'
+                        FROM отделы INNER JOIN (сотрудники INNER JOIN должности ON
+                        сотрудники.idДолжности = должности.idДолжности) 
+                        ON отделы.idОтделы = сотрудники.idОтделы
+                        ORDER BY сотрудники.idСотрудники;'''
         departments_sql = '''SELECT * FROM отделы'''
         posts_sql = '''SELECT Название, Описание, ТребуемыйОпыт FROM должности'''
         providers_sql = '''SELECT НаименованиеОрганизации, телефон FROM поставщики'''
@@ -1150,6 +1459,8 @@ class Table:
                             (имущество INNER JOIN поставщики on имущество.idПоставщики = поставщики.idПоставщики)
                              ON расположения.idРасположения = имущество.idРасположения) ON типы.idТипы = имущество.idТипы)
                               ON сотрудники.idСотрудники = имущество.idОтветственноеЛицо ORDER BY имущество.idИмущество'''
+        commission_sql = '''SELECT икомиссии.idИкомиссии, ДатаНачала, ДатаОкончания, ПричинаПроверки FROM икомиссии'''
+        property2 = '''SELECT * FROM имущество2'''
         queries = {
             "Сотрудники": staff_sql,
             "Отделы": departments_sql,
@@ -1158,12 +1469,15 @@ class Table:
             "Поставщики": providers_sql,
             "Расположения": location_sql,
             "Типы имущества": types_sql,
+            "ИКомиссии": commission_sql,
+            "Имущество2": property2
         }
         cursor = self.db.cursor()
 
         for key in queries.keys():
             cursor.execute(queries[key])
-            self.tables[key] = cursor.fetchall()
+            table = cursor.fetchall()
+            self.tables[key] = table
 
         staff_sql = '''SELECT idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.Название, отделы.Название
                                                     FROM отделы INNER JOIN (сотрудники INNER JOIN должности ON
@@ -1189,6 +1503,8 @@ class Table:
             "Поставщики": providers_sql,
             "Расположения": location_sql,
             "Типы имущества": types_sql,
+            "ИКомиссии": commission_sql,
+            "Имущество2": property2
         }
         cursor = self.db.cursor()
 
@@ -1219,6 +1535,8 @@ class Table:
             "Поставщики": providers_sql,
             "Расположения": location_sql,
             "Типы имущества": types_sql,
+            "ИКомиссии": commission_sql,
+            "Имущество2": property2
         }
         cursor = self.db.cursor()
 
@@ -1227,9 +1545,13 @@ class Table:
             self.tables_with_all_ids[key] = cursor.fetchall()
 
     def update_table(self, table_name):
-        staff_sql = '''SELECT idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.Название, отделы.Название
-                                                    FROM отделы INNER JOIN (сотрудники INNER JOIN должности ON
-                                                    сотрудники.idДолжности = должности.idДолжности) ON отделы.idОтделы = сотрудники.idОтделы ORDER BY сотрудники.idСотрудники'''
+        staff_sql = '''SELECT сотрудники.idСотрудники, Имя, Фамилия, Отчество, ОпытРаботы, должности.Название, отделы.Название,
+                       IF (сотрудники.idСотрудники IN (SELECT составкомиссий.idСотрудники FROM составкомиссий),
+                        'Да', 'Нет') AS 'Учавствовал в инвентаризации'
+                        FROM отделы INNER JOIN (сотрудники INNER JOIN должности ON
+                        сотрудники.idДолжности = должности.idДолжности) 
+                        ON отделы.idОтделы = сотрудники.idОтделы
+                        ORDER BY сотрудники.idСотрудники;'''
         departments_sql = '''SELECT * FROM отделы'''
         posts_sql = '''SELECT Название, Описание, ТребуемыйОпыт FROM должности'''
         providers_sql = '''SELECT НаименованиеОрганизации, телефон FROM поставщики'''
@@ -1243,6 +1565,8 @@ class Table:
                                     (имущество INNER JOIN поставщики on имущество.idПоставщики = поставщики.idПоставщики)
                                      ON расположения.idРасположения = имущество.idРасположения) ON типы.idТипы = имущество.idТипы)
                                       ON сотрудники.idСотрудники = имущество.idОтветственноеЛицо ORDER BY имущество.idИмущество'''
+        commission_sql = '''SELECT idИкомиссии, ДатаНачала, ДатаОкончания, ПричинаПроверки FROM икомиссии'''
+        property2 = '''SELECT * FROM имущество2'''
         queries = {
             "Сотрудники": staff_sql,
             "Отделы": departments_sql,
@@ -1251,6 +1575,8 @@ class Table:
             "Поставщики": providers_sql,
             "Расположения": location_sql,
             "Типы имущества": types_sql,
+            "ИКомиссии": commission_sql,
+            "Имущество2": property2
         }
 
         cursor = self.db.cursor()
@@ -1281,6 +1607,8 @@ class Table:
             "Поставщики": providers_sql,
             "Расположения": location_sql,
             "Типы имущества": types_sql,
+            "ИКомиссии": commission_sql,
+            "Имущество2": property2
         }
 
         cursor.execute(queries[table_name])
@@ -1309,6 +1637,8 @@ class Table:
             "Поставщики": providers_sql,
             "Расположения": location_sql,
             "Типы имущества": types_sql,
+            "ИКомиссии": commission_sql,
+            "Имущество2": property2
         }
 
         cursor.execute(queries[table_name])
@@ -1398,7 +1728,6 @@ class Table:
         headers = []
         for header in cursor.description:
             headers.append(header[0])
-
         if isinstance(new_value, str):
             sql_query = f"UPDATE {table_name} SET {headers[row_index]} = '{new_value}' WHERE {headers[0]} = {identifier};"
         else:
@@ -1509,6 +1838,15 @@ class Table:
         g = color[1]
         b = color[2]
         current_table = self.get_current_table()
+        for i in range(0, len(current_table)):
+            for j in range(0, len(current_table[i])):
+                if isinstance(current_table[i][j], str) and j == 1:
+                    temp = current_table[i][j]
+                    temp = temp.replace('(', '')
+                    temp = temp.replace(')', '')
+                    temp = temp.strip('+')
+                    temp = temp.replace('-', '')
+                    current_table[i][j] = temp
         for i, record in enumerate(current_table):
             for rec in table:
                 k = 0
@@ -1518,32 +1856,43 @@ class Table:
                 if k == len(rec):
                     for j in range(0, self.table.columnCount()):
                         self.table.item(i, j).setBackground(QtGui.QColor(r, g, b))
+                    break
 
     def display_table(self, table_name, table=None):
         needed_columns = {
-            "Сотрудники": [None, 0, None, None, 0, 1],
+            "Сотрудники": [None, 0, None, [0, 7], 0, 0],
             "Должности": [None, 0, None, None, 2, None],
             "Отделы": [None, 0, None, None, 0, 1],
             "Имущество": [None, 0, None, [0, 4], 0, None],
             "Расположения": [None, 0, None, None, 0, None],
-            "Типы имущества": [None, 0, None, None, 0, 1]
+            "Типы имущества": [None, 0, None, None, 0, 1],
+            "ИКомиссии": [None, 0, None, None, 0, None]
         }
         if table is None:
             table = self.get_table(table_name)
         self.table.setRowCount(0)
         self.table.setColumnCount(0)
-        for row_number, row_data in enumerate(table):
-            self.table.insertRow(row_number)
-            for column_number, data in enumerate(row_data):
-                if self.table.columnCount() <= column_number:
-                    self.table.setColumnCount(self.table.columnCount() + 1)
-                if data is None:
-                    data = ""
-                self.table.setItem(row_number, column_number, QTableWidgetItem(str(data)))
+        if table_name == "Поставщики":
+            for row_number, row_data in enumerate(table):
+                self.table.insertRow(row_number)
+                for column_number, data in enumerate(row_data):
+                    if self.table.columnCount() <= column_number:
+                        self.table.setColumnCount(self.table.columnCount() + 1)
+                    if column_number == 1:
+                        data = '+{}({})-{}-{}-{}'.format(data[:3], data[3:5], data[5:8], data[8:10], data[10:12])
+                    self.table.setItem(row_number, column_number, QTableWidgetItem(str(data)))
+        else:
+            for row_number, row_data in enumerate(table):
+                self.table.insertRow(row_number)
+                for column_number, data in enumerate(row_data):
+                    if self.table.columnCount() <= column_number:
+                        self.table.setColumnCount(self.table.columnCount() + 1)
+                    if data is None:
+                        data = ""
+                    self.table.setItem(row_number, column_number, QTableWidgetItem(str(data)))
         #
         self.table.setHorizontalHeaderLabels(self.headers[table_name])
         self.table.resizeColumnsToContents()
-
         if table_name in needed_columns.keys():
             temp = needed_columns[table_name]
             self.disable_change_some_cells(rows=temp[0], first_row=temp[1], last_row=temp[2],
@@ -1558,18 +1907,38 @@ class Table:
 
 qss = '''
 * {
-    color: rgb(255, 255, 255);
-    background-color: rgb(34,34,47);
+    color: rgb(0, 0, 0);
+    background-color: rgb(190, 190, 190);
 }
-
+QTablewidget {
+    background-color: rgb(255, 0, 0);
+}
 QTabBar::tab {
-    background-color:rgb(255, 105, 91);
+    background-color:rgb(140, 140, 140);
+}
+QHeaderView::section:horizontal {
+    border-style: solid;
+    background-color: rgb(190, 190, 190);
+ }
+QHeaderView::section:vertical {
+    border-style: solid;
+    background-color: rgb(190, 190, 190);
+ }
+QTabBar::tab::selected {
+    background-color:qlineargradient( x1: 0, y1: 0, x2: 0, y2: 1,
+                                        stop: 0 rgb(190, 190, 190), stop: 1 rgb(100, 100, 100));
+}
+QTabBar::tab::disabled {
+    background-color:rgb(250, 250, 250);
+}
+QLineEdit {
+    border: 1px solid black;
 }
 '''
 if __name__ == "__main__":
     previous_cell = QtWidgets.QTableWidgetItem()
     app = QtWidgets.QApplication(sys.argv)
-    # app.setStyleSheet(qss)
+    app.setStyleSheet(qss)
     MainWindow = QtWidgets.QMainWindow()
     ui = Ui_MainWindow()
     ui.setupUi(MainWindow)
