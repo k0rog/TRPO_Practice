@@ -37,6 +37,7 @@ class Program(QtWidgets.QMainWindow):
 
         self.__deleted_records = [[], ""]
 
+        self.__data = []
         self.form_initialization()
 
     def form_initialization(self):
@@ -100,9 +101,27 @@ class Program(QtWidgets.QMainWindow):
         self.window.printInWordButton.clicked.connect(self.print_in_word_button_clicked)
         self.window.printInExcel.clicked.connect(self.print_in_excel_button_clicked)
 
-        now = datetime.datetime.now()
-        self.window.dateEdit.setDate(now)
-        self.window.dateEdit_2.setDate(now)
+        self.window.commissionTypeCB.currentTextChanged.connect(self.commission_type_cb_changed)
+        self.window.commissionResponsPersonEdit.setVisible(False)
+        self.window.commissionLocationCB.setVisible(False)
+        self.window.commissionResponsPersonL.setVisible(False)
+        self.window.commissionLocationL.setVisible(False)
+
+    def commission_type_cb_changed(self):
+        if self.window.commissionReasonCB.count() > 2:
+            self.window.commissionReasonCB.removeItem(2)
+        current_text = self.window.commissionTypeCB.currentText()
+        self.window.commissionResponsPersonEdit.setVisible(False)
+        self.window.commissionLocationCB.setVisible(False)
+        self.window.commissionResponsPersonL.setVisible(False)
+        self.window.commissionLocationL.setVisible(False)
+        if current_text == "По расположению":
+            self.window.commissionLocationCB.setVisible(True)
+            self.window.commissionLocationL.setVisible(True)
+        if current_text == "По сотруднику":
+            self.window.commissionResponsPersonEdit.setVisible(True)
+            self.window.commissionResponsPersonL.setVisible(True)
+            self.window.commissionReasonCB.addItem("Увольнение сотрудника")
 
     def print_in_word_button_clicked(self):
         record = self.detect_commission_record()
@@ -580,6 +599,12 @@ class Program(QtWidgets.QMainWindow):
             for value in values:
                 self.table.update_record_in_table(value[0], value[1], value[2], value[3])
         elif table_name == "Сотрудники":
+            message1 = QMessageBox(MainWindow)
+            message1.setWindowTitle("Трубется действие")
+            message1.setText("Прежде чем удалить сотрудника(ов), необходимо ввести результаты его инвентаризаци.")
+            message1.setIcon(QMessageBox.Information)
+            message1.exec_()
+
             values = []
             property_table = self.table.get_table("Имущество", with_all_ids=True)
             employees = []
@@ -590,6 +615,28 @@ class Program(QtWidgets.QMainWindow):
                         break
 
             for employee in employees:
+                self.__data = []
+                ok = False
+                flag = False
+                while not ok:
+                    start_date, end_date, ok = DateDialog.get_date()
+                    print(start_date, end_date, ok)
+                    if not ok:
+                        reply = QMessageBox.question(MainWindow, "Уверены?",
+                                                     "Если не введёте инвентаризацию по сотруднику, он не"
+                                                     "будет удалён. Вы согласны с этим?", QMessageBox.Yes, QMessageBox.No)
+                        if reply == QMessageBox.No:
+                            continue
+                        elif reply == QMessageBox.Yes:
+                            flag = True
+                            break
+                    self.add_record_to_commissions(start_date, end_date, "Увольнение сотрудника", "По сотруднику",
+                                                   employee[0], "111")
+
+                if flag:
+                    records.remove(employee)
+                    continue
+
                 button_reply = QMessageBox.question(MainWindow, "Удаляете сотрудника?",
                                                     f"Этот сотрудник (код {employee[0]})"
                                                     f" ответственен за некоторое имущество."
@@ -823,24 +870,19 @@ class Program(QtWidgets.QMainWindow):
 
     def configure_combo_boxes(self):
         def staff_configure():
-            staff = self.table.get_table("Сотрудники")
-            posts = set()
-            departments = set()
-            for record in staff:
-                post = record[5]
-                depart = record[6]
-                posts.add(post)
-                departments.add(depart)
+            posts = self.table.get_table("Должности")
+            departments = self.table.get_table("Отделы")
 
             self.window.filterStaffDepartCB.addItem("Все")
             for depart in departments:
-                self.window.staffDepartmentCB.addItem(depart)
-                self.window.filterStaffDepartCB.addItem(depart)
+                self.window.staffDepartmentCB.addItem(depart[1])
+                self.window.filterStaffDepartCB.addItem(depart[1])
 
             self.window.filterStaffPostsCB.addItem("Все")
+
             for post in posts:
-                self.window.staffPostCB.addItem(post)
-                self.window.filterStaffPostsCB.addItem(post)
+                self.window.staffPostCB.addItem(post[0])
+                self.window.filterStaffPostsCB.addItem(post[0])
 
         def property_configure():
             types = set()
@@ -881,6 +923,7 @@ class Program(QtWidgets.QMainWindow):
             for location in locations:
                 self.window.propertyLocationCB.addItem(location)
                 self.window.filterPropLocationCB.addItem(location)
+                self.window.commissionLocationCB.addItem(location)
 
         def filter_staff_configure():
             fields = ["Имя", "Фамилия", "Отчество", "Опыт работы"]
@@ -941,8 +984,12 @@ class Program(QtWidgets.QMainWindow):
             is_added = self.add_record_to_types(self.window.typesTypeEdit.text(),
                                                 self.window.typesDiscEdit.toPlainText())
         elif self.window.additionCombobox.currentIndex() == 6:
-            is_added = self.add_record_to_commissions(self.window.dateEdit.text(), self.window.dateEdit_2.text(),
-                                                      self.window.comboBox.currentText())
+            is_added = self.add_record_to_commissions(self.window.commissionstartDate.text(),
+                                                      self.window.commissionendDate.text(),
+                                                      self.window.commissionTypeCB.currentText(),
+                                                      self.window.commissionTypeCB.currentText(),
+                                                      self.window.commissionResponsPersonEdit.text(),
+                                                      self.window.commissionLocationCB.currentText())
         #############################################################
         if is_added:
             self.table.update_table(self.window.additionCombobox.currentText())
@@ -1034,6 +1081,12 @@ class Program(QtWidgets.QMainWindow):
         self.window.filterPropSearchEdit.setText("")
         #
         self.window.filterProvidersSearchEdit.setText("")
+        #
+        now = datetime.datetime.now()
+        self.window.commissionstartDate.setDate(now)
+        self.window.commissionendDate.setDate(now)
+        self.window.commissionTypeCB.setCurrentIndex(0)
+        self.window.commissionReasonCB.setCurrentIndex(0)
 
     # Имущество
     def validate_property_addition(self, idd_str, provider_str, responsible_person_str, location_str, t_str, state_str,
@@ -1209,7 +1262,7 @@ class Program(QtWidgets.QMainWindow):
                         if int(record[3]) > int(experience_str):
                             errors.append("Сотрудник не может занять эту должность, так как его опыт меньше"
                                           f"требуемого на этой должности ({record[3]})")
-                    except:
+                    finally:
                         pass
             if len(result[0]) == 0:
                 errors.append("Нет такой должности")
@@ -1231,9 +1284,8 @@ class Program(QtWidgets.QMainWindow):
                         if int(record[3]) > int(experience_str):
                             errors.append("Сотрудник не может занять эту должность, так как его опыт меньше"
                                           f"требуемого на этой должности ({record[3]})")
-                    except:
+                    finally:
                         pass
-
         for err in errors:
             if err != "":
                 error = err
@@ -1358,7 +1410,60 @@ class Program(QtWidgets.QMainWindow):
         return True
 
     # ИКомиссии
-    def add_record_to_commissions(self, start_date_str, end_date_str, reason_str):
+    def add_record_to_commissions(self, start_date_str, end_date_str, reason_str, invent_type_str, responsible_id_str,
+                                  location_str):
+        def full_invent():
+            sql_ = '''SELECT idИмущество, idПоставщики, 
+                                CONCAT( '(код ', сотрудники.idСотрудники,') ', сотрудники.Фамилия,' ', сотрудники.Имя,' ', сотрудники.Имя),
+                                idРасположения, idТипы, Состояние, Стоимость  
+                                FROM имущество INNER JOIN сотрудники on имущество.idОтветственноеЛицо = сотрудники.idСотрудники'''
+            return sql_, True, ""
+
+        def location_invent():
+            sql_ = f'''SELECT idИмущество, idПоставщики, 
+                                CONCAT( '(код ', сотрудники.idСотрудники,') ', сотрудники.Фамилия,' ', сотрудники.Имя,' ', сотрудники.Имя),
+                                имущество.idРасположения, idТипы, Состояние, Стоимость  
+                                FROM расположения INNER JOIN 
+                                (имущество INNER JOIN сотрудники on имущество.idОтветственноеЛицо = сотрудники.idСотрудники)
+                                 ON расположения.idРасположения = имущество.idИмущество 
+                                 WHERE CONCAT(расположения.Корпус, расположения.Этаж, расположения.Кабинет) = {location_str}'''
+
+            specious_string_ = f" (расположение {location_str})"
+
+            return sql_, True, specious_string_
+
+        def employee_invent():
+            errors = [self.int_validate(responsible_id_str, "Ответственное лицо")]
+            error = ""
+            print(error)
+            print(errors)
+            try:
+                if not self.table.is_id_in_table("Сотрудники", int(responsible_id_str)):
+                    errors.append("Такой код сотрудника не существует")
+            except ValueError:
+                pass
+
+            for err in errors:
+                if err != "":
+                    error = err
+                    break
+
+            self.window.message.setText(error)
+
+            if self.window.message.text() != "":
+                self.window.message.exec_()
+                return "", False, ""
+
+            sql_ = f'''SELECT idИмущество, idПоставщики, 
+                                            CONCAT( '(код ', сотрудники.idСотрудники,') ', сотрудники.Фамилия,' ', сотрудники.Имя,' ', сотрудники.Имя),
+                                            idРасположения, idТипы, Состояние, Стоимость  
+                                            FROM имущество INNER JOIN сотрудники on имущество.idОтветственноеЛицо = сотрудники.idСотрудники
+                                            WHERE имущество.idОтветственноеЛицо = {int(responsible_id_str)}'''
+
+            specious_string_ = f" (код сотрудника {responsible_id_str})"
+
+            return sql_, True, specious_string_
+
         start_date_str = start_date_str.split('.')
         start_date_str.reverse()
         date1 = datetime.datetime(int(start_date_str[0]), int(start_date_str[1]), int(start_date_str[2]))
@@ -1374,10 +1479,12 @@ class Program(QtWidgets.QMainWindow):
         ten_days = datetime.timedelta(days=10)
 
         self.window.message.setText("")
-        if date2 < datetime.datetime.now()-ten_days:
+        if date2 < datetime.datetime.now() - ten_days:
             self.window.message.setText("Инвентаризация не могла закончится более 10 дней назад!")
         if date1 > date2:
             self.window.message.setText("Дата окончания не может быть меньше даты начала!")
+        if datetime.datetime.now() < date2:
+            self.window.message.setText("Инвентаризация не могла закончится позже, чем сегодня!")
 
         if len(self.window.message.text()) != 0:
             self.window.message.exec_()
@@ -1385,41 +1492,65 @@ class Program(QtWidgets.QMainWindow):
 
         reason = reason_str
 
+        invent_type = invent_type_str
+
+        if invent_type == "Полная":
+            sql, ok, specious_string = full_invent()
+        elif invent_type == "По расположению":
+            sql, ok, specious_string = location_invent()
+        else:
+            sql, ok, specious_string = employee_invent()
+
+        if not ok:
+            return
+
         message1 = QMessageBox()
         message1.setText("Сейчас внесите результаты инвентаризации")
         message1.setIcon(QMessageBox.Information)
         message1.exec_()
-
         message1.setIcon(QMessageBox.Warning)
 
         dialog = QtWidgets.QInputDialog()
-        sql = '''SELECT idИмущество, idПоставщики, 
-        CONCAT( '(код ', сотрудники.idСотрудники,') ', сотрудники.Фамилия,' ', сотрудники.Имя,' ', сотрудники.Имя),
-        idРасположения, idТипы, Состояние, Стоимость  
-        FROM имущество INNER JOIN сотрудники on имущество.idОтветственноеЛицо = сотрудники.idСотрудники'''
         property_table = self.table.select_table(sql)
         answers = []
-        for record in property_table[:4]:
+        for record in property_table:
             answered = False
             while answered is False:
-                value, answered = dialog.getItem(self, "Ввод данных", f"Выберите состояние предмета (код {record[0]})",
-                                               ["Исправен", "Требуется починка", "Утерян"], 0, False)
+                value, answered = dialog.getItem(self, "Ввод данных",
+                                                 f"Выберите состояние предмета (код {record[0]}){specious_string}",
+                                                 ["Исправен", "Требуется починка", "Утерян"], 0, False)
                 if answered is False:
                     button_reply = QMessageBox.question(MainWindow, "Что вы хотите сделать?",
-                                                        "Отменить добавление комиссии", QMessageBox.Yes,
+                                                        "Отменить добавление комиссии?", QMessageBox.Yes,
                                                         QMessageBox.No)
                     if button_reply == QMessageBox.Yes:
                         return
                     message1.setText("Тогда вводите данные!")
                     message1.exec_()
                 answers.append((record, value))
-        self.table.insert_into_table("ИКомиссии", start_date, end_date, reason)
+        self.table.insert_into_table("ИКомиссии", start_date, end_date, reason, invent_type)
         commissions = self.table.get_table("ИКомиссии")
         last = commissions[-1][0]
         for answer in answers:
-            self.table.insert_into_table("Имущество2", *answer[0][1:5], answer[1], answer[0][6], last)
+            self.table.insert_into_table("Имущество2", *answer[0][0:5], answer[1], answer[0][6], last)
             self.table.update_record_in_table("Имущество", answer[0][0], 5, answer[1])
 
+        current_frame = inspect.currentframe()
+        caller_frame = current_frame.f_back
+        code_obj = caller_frame.f_code
+        code_obj_name = code_obj.co_name
+        if code_obj_name != "delete_records":
+            if reason_str == "Увольнение сотрудника":
+                button_reply = QMessageBox.question(MainWindow, "Что дальше?",
+                                                    "Хотите сразу удалить сотрудника?", QMessageBox.Yes,
+                                                    QMessageBox.No)
+                if button_reply == QMessageBox.Yes:
+                    table = self.table.get_table("Сотрудники", with_all_ids=True)
+                    record = []
+                    for record_ in table:
+                        if record_[0] == int(responsible_id_str):
+                            record = record_
+                    self.delete_records("Сотрудники", record)
         return True
 
 
@@ -1702,6 +1833,7 @@ class Table:
                     sql += f"\'{value}\', "
         sql = sql[0:-2]
         sql += ");"
+        print(sql)
         cursor.execute(sql)
         self.db.commit()
         if table_name == "типы":
@@ -1905,6 +2037,53 @@ class Table:
                                            columns=temp[3], first_column=temp[4], last_column=temp[5])
 
 
+class DateDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super(DateDialog, self).__init__(parent)
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        font = QtGui.QFont()
+        font.setFamily("Comic Sans MS")
+        font.setPointSize(9)
+        font.setBold(True)
+        font.setWeight(75)
+
+        self.label1 = QtWidgets.QLabel(self)
+        self.label1.setText("Дата начала")
+        self.label1.setFont(font)
+        layout.addWidget(self.label1)
+
+        self.start_date = QtWidgets.QDateEdit(self)
+        self.start_date.setDate(datetime.datetime.now())
+        layout.addWidget(self.start_date)
+
+        self.label2 = QtWidgets.QLabel(self)
+        self.label2.setText("Дата окончания")
+        self.label2.setFont(font)
+        layout.addWidget(self.label2)
+
+        self.end_date = QtWidgets.QDateEdit(self)
+        self.end_date.setDate(datetime.datetime.now())
+        layout.addWidget(self.end_date)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
+            QtCore.Qt.Horizontal, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def date1(self):
+        return self.start_date.text(), self.end_date.text()
+
+    @staticmethod
+    def get_date(parent=None):
+        dialog = DateDialog(parent)
+        result = dialog.exec_()
+        start_date, end_date = dialog.date1()
+        return start_date, end_date, result == QtWidgets.QDialog.Accepted
+
 #
 # QTabBar::tab:selected  {
 #     background-color:rgb(255, 255, 0);
@@ -1916,11 +2095,13 @@ qss = '''
     color: rgb(0, 0, 0);
     background-color: rgb(190, 190, 190);
 }
-QTablewidget {
-    background-color: rgb(255, 0, 0);
+QTableWidget {
+    background-color: rgb(240, 240, 240);
 }
 QTabBar::tab {
     background-color:rgb(140, 140, 140);
+    border-right: 1px solid black;
+    padding: 5px 10px;
 }
 QHeaderView::section:horizontal {
     border-style: solid;
@@ -1941,8 +2122,9 @@ QLineEdit {
     border: 1px solid black;
 }
 '''
+
 if __name__ == "__main__":
-    previous_cell = QtWidgets.QTableWidgetItem()
+    previous_cell = []
     app = QtWidgets.QApplication(sys.argv)
     app.setStyleSheet(qss)
     MainWindow = QtWidgets.QMainWindow()
