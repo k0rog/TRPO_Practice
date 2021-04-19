@@ -12,13 +12,176 @@ import datetime
 import openpyxl
 from openpyxl.styles import Font
 from openpyxl.styles import Border, Side
+from register import Ui_Form
 
 
-class Program(QtWidgets.QMainWindow):
+class Program:
     def __init__(self):
-        super(Program, self).__init__()
+        self.register_ui = Ui_Form()
+        self.form2 = From2()
+
+        self.form2.window.enterEnterButton.clicked.connect(self.enter_button_clicked)
+
+        self.form2_show()
+
+    def enter_button_clicked(self):
+        message1 = QMessageBox(MainWindow)
+        message1.setIcon(QMessageBox.Warning)
+        message1.setWindowTitle("Неправильные данные")
+
+        login = self.form2.window.enterLoginEdit.text()
+        password = self.form2.window.enterPassEdit.text()
+
+        enter_data = []
+        role = "Пользователь"
+        for record in self.form2.data_table:
+            if record[1] == login and record[2] == password:
+                role = record[3]
+                enter_data = [login, password, role]
+
+        if len(enter_data) == 0:
+            message1.setText("Не найден логин или пароль")
+            message1.exec_()
+            return
+
+        employee_id = 0
+        for record in self.form2.data_table:
+            if record[2] == password:
+                employee_id = record[4]
+
+        self.form1_show(login, role, employee_id)
+
+    def form1_show(self, login, role, employee_id):
+        self.form2.close()
+        self.main_ui = Ui_MainWindow()
+        self.form1 = From1(login, role, employee_id)
+        self.main_ui.setupUi(MainWindow)
+        self.form1.show()
+
+    def form2_show(self):
+        self.register_ui.setupUi(MainWindow)
+        self.form2.show()
+
+
+class From2(QtWidgets.QMainWindow):
+    def __init__(self):
+        super(From2, self).__init__()
+        self.window = Ui_Form()
+        self.window.setupUi(self)
+
+        self.admin_password = "Хочу 9"
+
+        self.db = Mdb.connect('localhost', 'root', '321Ilyxazc', 'enter_data')
+        self.db.set_character_set("utf8")
+        self.cursor = self.db.cursor()
+        self.cursor.execute('''SELECT * FROM данныеВхода''')
+        self.data_table = self.cursor.fetchall()
+
+        self.form_initialization()
+
+    def form_initialization(self):
+        self.window.regAdminPassEdit.setVisible(False)
+        self.window.label_6.setVisible(False)
+        self.window.tabWidget.setCurrentIndex(0)
+
+        trpo_db = Mdb.connect('localhost', 'root', '321Ilyxazc', 'trpo_db')
+        trpo_db.set_character_set("utf8")
+        cursor = trpo_db.cursor()
+        cursor.execute('''SELECT * FROM сотрудники''')
+        self.staff_table = cursor.fetchall()
+
+        for employee in self.staff_table:
+            self.window.regIdCB.addItem(str(employee[0]))
+
+        self.window.enterPassEdit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.window.regPassFEdit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.window.regPassSEdit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.window.regAdminPassEdit.setEchoMode(QtWidgets.QLineEdit.Password)
+
+        self.window.regRegisterButton.clicked.connect(self.reg_register_button_clicked)
+        self.window.regAdminRadioB.toggled.connect(self.reg_admin_radio_button_toggled)
+        self.window.enterGoToRegButton.clicked.connect(self.enter_go_to_reg_button_clicked)
+        self.window.regReturnToEnterButton.clicked.connect(self.reg_return_to_enter_button_clicked)
+
+    def update_table(self):
+        self.cursor.execute('''SELECT * FROM данныеВхода''')
+        self.data_table = self.cursor.fetchall()
+
+    def check_in_table(self, data):
+        for record in self.data_table:
+            if record[1] == data:
+                return True
+        return False
+
+    def insert_into_table(self, login, password, role, employee_id):
+        sql = f'''INSERT INTO `enter_data`.`данныевхода` (`Логин`, `Пароль`, `Роль`, `Код`)
+         VALUES ('{login}', '{password}', '{role}', '{employee_id}');'''
+        self.cursor.execute(sql)
+        self.db.commit()
+        self.update_table()
+
+    def reg_register_button_clicked(self):
+        message1 = QMessageBox(MainWindow)
+        message1.setIcon(QMessageBox.Warning)
+        message1.setWindowTitle("Неправильные данные")
+
+        password1 = self.window.regPassFEdit.text()
+        password2 = self.window.regPassSEdit.text()
+        login = self.window.regLoginEdit.text()
+
+        if self.check_in_table(login):
+            message1.setText("Такой логин уже есть")
+
+        if password1 != password2:
+            message1.setText("Пароли не совпадают")
+
+        employee_id = self.window.regIdCB.currentText()
+        for record in self.data_table:
+            if employee_id == str(record[4]):
+                message1.setText("Такой сотрудник уже есть")
+
+        admin_password = self.window.regAdminPassEdit.text()
+        role = "Пользователь"
+
+        if self.window.regAdminRadioB.isChecked():
+            if len(admin_password) == 0:
+                message1.setText("Пароль админа не введён")
+            else:
+                if admin_password != self.admin_password:
+                    message1.setText("Пароль админа не правильный")
+                else:
+                    role = "Администратор"
+
+        if len(message1.text()) != 0:
+            message1.exec_()
+            return
+
+        self.insert_into_table(login, password1, role, int(employee_id))
+
+        self.window.tabWidget.setCurrentIndex(0)
+
+    def reg_admin_radio_button_toggled(self):
+        if self.window.regAdminRadioB.isChecked():
+            self.window.regAdminPassEdit.setVisible(True)
+            self.window.label_6.setVisible(True)
+        else:
+            self.window.regAdminPassEdit.setVisible(False)
+            self.window.label_6.setVisible(False)
+
+    def enter_go_to_reg_button_clicked(self):
+        self.window.tabWidget.setCurrentIndex(1)
+
+    def reg_return_to_enter_button_clicked(self):
+        self.window.tabWidget.setCurrentIndex(0)
+
+
+class From1(QtWidgets.QMainWindow):
+    def __init__(self, login, role, employee_id):
+        super(From1, self).__init__()
         self.window = Ui_MainWindow()
         self.window.setupUi(self)
+
+        self.login, self.role, self.employee_id = login, role, employee_id
 
         headers = {
             "Сотрудники": ["Код сотрудника", "Имя", "Фамилия", "Отчество", "Опыт работы", "Должность", "Отдел",
@@ -30,8 +193,7 @@ class Program(QtWidgets.QMainWindow):
             "Поставщики": ["Наименование организации", "Телефон"],
             "Расположения": ["Корпус", "Этаж", "Кабинет"],
             "Типы имущества": ["Тип", "Описание"],
-            "ИКомиссии": ["Номер комиссии", "Дата начала", "Дата окончания", "Причина проверки",
-                          "Количество обнаруженных потерь"]
+            "ИКомиссии": ["Номер комиссии", "Дата начала", "Дата окончания", "Причина проверки", "Тип проверки"]
         }
         self.table = Table(self.window, headers)
 
@@ -47,6 +209,17 @@ class Program(QtWidgets.QMainWindow):
             temp = QtWidgets.QWidget()
             temp.setGeometry(QtCore.QRect(0, 0, 0, 0))
             self.window.tablesTabs.addTab(temp, tab)
+
+        staff_table = self.table.get_table("Сотрудники")
+        fio = ""
+        for record in staff_table:
+            if record[0] == self.employee_id:
+                fio = record[2] + ' ' + record[1] + ' ' + record[3]
+
+        self.window.FIOLabel.setText(self.window.FIOLabel.text() + fio)
+        self.window.RoleLabel.setText(self.window.RoleLabel.text() + self.role)
+        self.window.LoginLabel.setText(self.window.LoginLabel.text() + self.login)
+        self.window.label_25.setText(self.window.label_25.text() + f'({self.employee_id})')
 
         self.table.display_table("Сотрудники")
         self.input_tabs_enable_tab(0)
@@ -148,17 +321,44 @@ class Program(QtWidgets.QMainWindow):
             'start_date': f'{record[1].strftime("%d-%m-%Y")}',
             'end_date': f'{record[2].strftime("%d-%m-%Y")}',
             'now_date': f'{datetime.datetime.now().strftime("%d-%m-%Y")}',
-            'reason': f'{record[3]}'
+            'reason': f'{record[3]}',
+            'type_of': f'{record[4]}',
         }
-
         doc.render(context)
         doc.save(file_name)
 
         sql = f'''SELECT имущество2.idИмущество, поставщики.НаименованиеОрганизации, имущество2.Состояние, имущество2.Стоимость
          FROM поставщики INNER JOIN имущество2 ON поставщики.idПоставщики = имущество2.idПоставщики
             WHERE имущество2.idИКомиссии = {record[0]}'''
+        print(record[0])
         table = self.table.select_table(sql)
+        print(table)
+        sql = f'''SELECT сотрудники.Фамилия, сотрудники.Имя, сотрудники.Отчество 
+        FROM составкомиссий INNER JOIN сотрудники on составкомиссий.idСотрудники = сотрудники.idСотрудники 
+        WHERE idКомиссии = {record[0]}'''
+        table2 = self.table.select_table(sql)
+
         document = Document(file_name)
+
+        if len(table2) != 0:
+            document.add_paragraph("Учавствовашие лица")
+            headers = ["Фамилия", "Имя", "Отчество"]
+            row_count = len(table2) + 1
+            column_count = len(table2[0])
+            word_table = document.add_table(rows=row_count, cols=column_count)
+            word_table.style = 'Table Grid'
+            for i in range(0, 3):
+                cell = word_table.rows[0].cells[i]
+                cell.text = f"{headers[i]}"
+                run = cell.paragraphs[0].runs[0]
+                run.font.bold = True
+
+            for i in range(1, row_count):
+                for j in range(0, column_count):
+                    cell = word_table.rows[i].cells[j]
+                    cell.text = f"{table2[i - 1][j]}"
+
+        document.add_paragraph("Проверенное имущество")
 
         row_count = len(table) + 1
         column_count = len(table[0])
@@ -214,16 +414,14 @@ class Program(QtWidgets.QMainWindow):
             "Дата начала проведения": [record[1].strftime("%d-%m-%Y")],
             "Дата окончания проведения": [record[2].strftime("%d-%m-%Y")],
             "Причина проверки": [record[3]],
+            "Тип проверки": [record[4]],
             "Количество потерянных предметов": [count],
             "Суммарная стоимость утерянных предметов": [s]
         }
-        print(data1)
         sql = f'''SELECT имущество2.idИмущество, имущество2.Стоимость, имущество2.ОтветственноеЛицо, имущество2.Состояние
          FROM имущество2 
          WHERE имущество2.Состояние = \'Утерян\' AND имущество2.idИКомиссии = {record[0]}; '''
-        print(sql)
         property_table = self.table.select_table(sql)
-        print(1)
         data2 = {
             "Код предмета": [record[0] for record in property_table],
             "Стоимость": [record[1] for record in property_table],
@@ -236,9 +434,10 @@ class Program(QtWidgets.QMainWindow):
         my_wb.active.column_dimensions['A'].width = 20
         my_wb.active.column_dimensions['B'].width = 27
         my_wb.active.column_dimensions['C'].width = 32
-        my_wb.active.column_dimensions['D'].width = 20
-        my_wb.active.column_dimensions['E'].width = 35
-        my_wb.active.column_dimensions['F'].width = 45
+        my_wb.active.column_dimensions['D'].width = 32
+        my_wb.active.column_dimensions['E'].width = 28
+        my_wb.active.column_dimensions['F'].width = 40
+        my_wb.active.column_dimensions['G'].width = 50
 
         header_border = Border(top=Side(border_style='thick', color='FF000000'),
                                right=Side(border_style='thick', color='FF000000'),
@@ -355,6 +554,7 @@ class Program(QtWidgets.QMainWindow):
                         new_value = record[row_index - 1]
                     else:
                         record = result
+
                 elif table_name == "Должности":
                     record = self.validate_posts_addition(*record[1:])
                 elif table_name == "Отделы":
@@ -422,6 +622,12 @@ class Program(QtWidgets.QMainWindow):
                 record = list(record)
                 record.insert(0, identifier)
                 self.table.update_record_in_table(table_name, identifier, row_index, new_value)
+                if table_name == "Сотрудники":
+                    staff_table = self.table.get_table("Сотрудники")
+                    for employee in staff_table:
+                        if str(employee[0]) == str(self.employee_id):
+                            self.window.FIOLabel.setText(
+                                self.window.FIOLabel.text() + employee[2] + ' ' + employee[1] + ' ' + employee[3])
                 if table_name == "Типы":
                     table_name = "Типы имущества"
                 self.table.display_table(table_name)
@@ -599,11 +805,16 @@ class Program(QtWidgets.QMainWindow):
             for value in values:
                 self.table.update_record_in_table(value[0], value[1], value[2], value[3])
         elif table_name == "Сотрудники":
-            message1 = QMessageBox(MainWindow)
-            message1.setWindowTitle("Трубется действие")
-            message1.setText("Прежде чем удалить сотрудника(ов), необходимо ввести результаты его инвентаризаци.")
-            message1.setIcon(QMessageBox.Information)
-            message1.exec_()
+            current_frame = inspect.currentframe()
+            caller_frame = current_frame.f_back
+            code_obj = caller_frame.f_code
+            code_obj_name = code_obj.co_name
+            if code_obj_name != "add_record_to_commissions":
+                message1 = QMessageBox(MainWindow)
+                message1.setWindowTitle("Трубется действие")
+                message1.setText("Прежде чем удалить сотрудника(ов), необходимо ввести результаты его инвентаризаци.")
+                message1.setIcon(QMessageBox.Information)
+                message1.exec_()
 
             values = []
             property_table = self.table.get_table("Имущество", with_all_ids=True)
@@ -615,27 +826,40 @@ class Program(QtWidgets.QMainWindow):
                         break
 
             for employee in employees:
+                print(0)
+                if str(employee[0]) == str(self.employee_id):
+                    records.remove(employee)
+                    message2 = QMessageBox(MainWindow)
+                    message2.setWindowTitle("Предупреждение")
+                    message2.setText("Сотрудник, чья сессия сейчас запущена удалён не будет.")
+                    message2.setIcon(QMessageBox.Information)
+                    message2.exec_()
+                    continue
                 self.__data = []
                 ok = False
                 flag = False
-                while not ok:
-                    start_date, end_date, ok = DateDialog.get_date()
-                    print(start_date, end_date, ok)
-                    if not ok:
-                        reply = QMessageBox.question(MainWindow, "Уверены?",
-                                                     "Если не введёте инвентаризацию по сотруднику, он не"
-                                                     "будет удалён. Вы согласны с этим?", QMessageBox.Yes, QMessageBox.No)
-                        if reply == QMessageBox.No:
-                            continue
-                        elif reply == QMessageBox.Yes:
-                            flag = True
-                            break
-                    self.add_record_to_commissions(start_date, end_date, "Увольнение сотрудника", "По сотруднику",
-                                                   employee[0], "111")
+                print(1)
+                if code_obj_name != "add_record_to_commissions":
+                    while not ok:
+                        start_date, end_date, ok = DateDialog.get_date()
+                        if not ok:
+                            reply = QMessageBox.question(MainWindow, "Уверены?",
+                                                         "Если не введёте инвентаризацию по сотруднику, он не"
+                                                         "будет удалён. Вы согласны с этим?", QMessageBox.Yes,
+                                                         QMessageBox.No)
+                            if reply == QMessageBox.No:
+                                continue
+                            elif reply == QMessageBox.Yes:
+                                flag = True
+                                break
+                        self.add_record_to_commissions(start_date, end_date, "Увольнение сотрудника", "По сотруднику",
+                                                       employee[0], "111")
 
-                if flag:
-                    records.remove(employee)
-                    continue
+                    if flag:
+                        records.remove(employee)
+                        continue
+
+                print(2)
 
                 button_reply = QMessageBox.question(MainWindow, "Удаляете сотрудника?",
                                                     f"Этот сотрудник (код {employee[0]})"
@@ -647,6 +871,8 @@ class Program(QtWidgets.QMainWindow):
                                                     " будет удалено!)", QMessageBox.Yes, QMessageBox.No)
                 if button_reply == QMessageBox.No:
                     continue
+
+                print(3)
 
                 this_employee_items = []
                 for item in property_table:
@@ -664,6 +890,9 @@ class Program(QtWidgets.QMainWindow):
 
                 for answer in answers:
                     values.append(("Имущество", this_employee_items[answer[0]][0], 2, answer[1]))
+
+            if len(records) == 0:
+                return
 
             button_reply = QMessageBox.question(MainWindow, "Удаление данных НЕОБРАТИМО",
                                                 "Вы уверены, что хотите удалить данные?", QMessageBox.Yes,
@@ -986,7 +1215,7 @@ class Program(QtWidgets.QMainWindow):
         elif self.window.additionCombobox.currentIndex() == 6:
             is_added = self.add_record_to_commissions(self.window.commissionstartDate.text(),
                                                       self.window.commissionendDate.text(),
-                                                      self.window.commissionTypeCB.currentText(),
+                                                      self.window.commissionReasonCB.currentText(),
                                                       self.window.commissionTypeCB.currentText(),
                                                       self.window.commissionResponsPersonEdit.text(),
                                                       self.window.commissionLocationCB.currentText())
@@ -1435,8 +1664,6 @@ class Program(QtWidgets.QMainWindow):
         def employee_invent():
             errors = [self.int_validate(responsible_id_str, "Ответственное лицо")]
             error = ""
-            print(error)
-            print(errors)
             try:
                 if not self.table.is_id_in_table("Сотрудники", int(responsible_id_str)):
                     errors.append("Такой код сотрудника не существует")
@@ -1463,6 +1690,11 @@ class Program(QtWidgets.QMainWindow):
             specious_string_ = f" (код сотрудника {responsible_id_str})"
 
             return sql_, True, specious_string_
+
+        if self.role != "Администратор":
+            self.window.message.setText("Добавлять инвентаризационные комиссии может только администратор")
+            self.window.message.exec_()
+            return False
 
         start_date_str = start_date_str.split('.')
         start_date_str.reverse()
@@ -1504,13 +1736,41 @@ class Program(QtWidgets.QMainWindow):
         if not ok:
             return
 
+        dialog = QtWidgets.QInputDialog()
+        employees = []
+        ids = []
+        staff_table = self.table.get_table("Сотрудники")
+        for employee in staff_table:
+            ids.append(str(employee[0]))
+        emp_count = self.window.commissionSpinBox.value()
+        while len(employees) != emp_count:
+            employee_id, ok = dialog.getItem(self, "Ввод данных",
+                                             f"Выберите код сотрудника",
+                                             ids, 0, False)
+            if not ok:
+                button_reply = QMessageBox.question(MainWindow, "Что вы хотите сделать?",
+                                                    "Отменить добавление комиссии?", QMessageBox.Yes,
+                                                    QMessageBox.No)
+                if button_reply == QMessageBox.Yes:
+                    return
+
+            if str(employee_id) == str(responsible_id_str):
+                self.window.message.setText("Сотрудник не может учавствовать в инвентаризации себя")
+                self.window.message.exec_()
+                continue
+
+            if employee_id in employees:
+                self.window.message.setText("Такой сотрудник уже выбран")
+                self.window.message.exec_()
+                continue
+
+            employees.append(employee_id)
+
         message1 = QMessageBox()
         message1.setText("Сейчас внесите результаты инвентаризации")
         message1.setIcon(QMessageBox.Information)
         message1.exec_()
         message1.setIcon(QMessageBox.Warning)
-
-        dialog = QtWidgets.QInputDialog()
         property_table = self.table.select_table(sql)
         answers = []
         for record in property_table:
@@ -1528,12 +1788,19 @@ class Program(QtWidgets.QMainWindow):
                     message1.setText("Тогда вводите данные!")
                     message1.exec_()
                 answers.append((record, value))
+
         self.table.insert_into_table("ИКомиссии", start_date, end_date, reason, invent_type)
         commissions = self.table.get_table("ИКомиссии")
         last = commissions[-1][0]
+
         for answer in answers:
             self.table.insert_into_table("Имущество2", *answer[0][0:5], answer[1], answer[0][6], last)
             self.table.update_record_in_table("Имущество", answer[0][0], 5, answer[1])
+
+        for employee in employees:
+            sql = f'''INSERT INTO `trpo_db`.`составкомиссий` (`idСотрудники`, `idКомиссии`) VALUES ('{int(employee)}', '{int(last)}');'''
+            self.table.select_table(sql)
+            self.table.db.commit()
 
         current_frame = inspect.currentframe()
         caller_frame = current_frame.f_back
@@ -1541,6 +1808,8 @@ class Program(QtWidgets.QMainWindow):
         code_obj_name = code_obj.co_name
         if code_obj_name != "delete_records":
             if reason_str == "Увольнение сотрудника":
+                print(5, reason)
+
                 button_reply = QMessageBox.question(MainWindow, "Что дальше?",
                                                     "Хотите сразу удалить сотрудника?", QMessageBox.Yes,
                                                     QMessageBox.No)
@@ -1550,7 +1819,8 @@ class Program(QtWidgets.QMainWindow):
                     for record_ in table:
                         if record_[0] == int(responsible_id_str):
                             record = record_
-                    self.delete_records("Сотрудники", record)
+                    print("en", record)
+                    self.delete_records("Сотрудники", [record])
         return True
 
 
@@ -1596,7 +1866,7 @@ class Table:
                             (имущество INNER JOIN поставщики on имущество.idПоставщики = поставщики.idПоставщики)
                              ON расположения.idРасположения = имущество.idРасположения) ON типы.idТипы = имущество.idТипы)
                               ON сотрудники.idСотрудники = имущество.idОтветственноеЛицо ORDER BY имущество.idИмущество'''
-        commission_sql = '''SELECT икомиссии.idИкомиссии, ДатаНачала, ДатаОкончания, ПричинаПроверки FROM икомиссии'''
+        commission_sql = '''SELECT икомиссии.idИкомиссии, ДатаНачала, ДатаОкончания, ПричинаПроверки, ТипПроверки FROM икомиссии'''
         property2 = '''SELECT * FROM имущество2'''
         queries = {
             "Сотрудники": staff_sql,
@@ -1702,7 +1972,7 @@ class Table:
                                     (имущество INNER JOIN поставщики on имущество.idПоставщики = поставщики.idПоставщики)
                                      ON расположения.idРасположения = имущество.idРасположения) ON типы.idТипы = имущество.idТипы)
                                       ON сотрудники.idСотрудники = имущество.idОтветственноеЛицо ORDER BY имущество.idИмущество'''
-        commission_sql = '''SELECT idИкомиссии, ДатаНачала, ДатаОкончания, ПричинаПроверки FROM икомиссии'''
+        commission_sql = '''SELECT икомиссии.idИкомиссии, ДатаНачала, ДатаОкончания, ПричинаПроверки, ТипПроверки FROM икомиссии'''
         property2 = '''SELECT * FROM имущество2'''
         queries = {
             "Сотрудники": staff_sql,
@@ -1833,7 +2103,6 @@ class Table:
                     sql += f"\'{value}\', "
         sql = sql[0:-2]
         sql += ");"
-        print(sql)
         cursor.execute(sql)
         self.db.commit()
         if table_name == "типы":
@@ -2084,6 +2353,7 @@ class DateDialog(QtWidgets.QDialog):
         start_date, end_date = dialog.date1()
         return start_date, end_date, result == QtWidgets.QDialog.Accepted
 
+
 #
 # QTabBar::tab:selected  {
 #     background-color:rgb(255, 255, 0);
@@ -2095,22 +2365,29 @@ qss = '''
     color: rgb(0, 0, 0);
     background-color: rgb(190, 190, 190);
 }
+QPushButton,
+QLineEdit,
+QComboBox {
+    background-color: rgb(150, 150, 150);
+}
 QTableWidget {
     background-color: rgb(240, 240, 240);
 }
 QTabBar::tab {
     background-color:rgb(140, 140, 140);
     border-right: 1px solid black;
+    border-top: 1px solid black;
+    border-bottom: 1px solid black;
     padding: 5px 10px;
 }
-QHeaderView::section:horizontal {
+QHeaderView::section {
     border-style: solid;
     background-color: rgb(190, 190, 190);
+    border-bottom: 1px solid black;
+    border-right: 1px solid black;
+
  }
-QHeaderView::section:vertical {
-    border-style: solid;
-    background-color: rgb(190, 190, 190);
- }
+
 QTabBar::tab::selected {
     background-color:qlineargradient( x1: 0, y1: 0, x2: 0, y2: 1,
                                         stop: 0 rgb(190, 190, 190), stop: 1 rgb(100, 100, 100));
@@ -2128,10 +2405,11 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     app.setStyleSheet(qss)
     MainWindow = QtWidgets.QMainWindow()
-    ui = Ui_MainWindow()
-    ui.setupUi(MainWindow)
-    application = Program()
-    application.show()
+    # ui = Ui_MainWindow()
+    # ui.setupUi(MainWindow)
+    # application = Program()
+    # application.show()
+    a = Program()
     sys.exit(app.exec_())
 
 # app = QtWidgets.QApplication([])
